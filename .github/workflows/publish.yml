@@ -1,0 +1,44 @@
+# Each day, by hand, or when the platform asks, builds and releases each runtime upstream released
+# past the release delay that no tag here holds yet, scripts/publish.res.
+name: publish
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+  repository_dispatch:
+    types: [publish]
+
+# One run at a time and never canceled, so two never race to release one tag.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      # The workspace above the repository, as it is checked out at home, whose mise.toml pins node.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: canmi21/canmi
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: repos/monoflake/runtime
+          persist-credentials: false
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          working_directory: repos/monoflake/runtime
+      # The OCI exporter needs a builder of its own, which the docker driver is not.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - working-directory: repos/monoflake/runtime
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pnpm install --frozen-lockfile
+          mise run publish

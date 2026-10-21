@@ -1,0 +1,61 @@
+# This repository's own tasks; node, pnpm and oxlint are the workspace's, read by walking up.
+[env]
+_.path = ["{{config_root}}/node_modules/.bin"]
+
+[tools]
+actionlint = "1"
+# What actionlint checks a workflow's shell with.
+shellcheck = "0.11" # pre-1.0, where a minor is the breaking release
+
+# What oxfmt formats here; ReScript's formatter takes its sources from rescript.json.
+[vars]
+formatted = "README.md package.json rescript.json"
+
+[tasks.fmt]
+description = "Format the glue with ReScript's formatter and the prose with oxfmt: `fmt [--dry-run]`"
+usage = 'flag "-n --dry-run" help="List what is not formatted and write nothing"'
+run = """
+if [ -z "${usage_dry_run:-}" ]; then rescript format && oxfmt {{vars.formatted}}; exit; fi
+rescript format --check; oxfmt --list-different {{vars.formatted}}; exit 0
+"""
+
+[tasks.build]
+description = "Compile the glue under scripts/ and its tests"
+run = "rescript build"
+
+[tasks.publish]
+description = "Build and release each runtime upstream released past the delay and not yet tagged here: `publish [--dry-run]`"
+usage = 'flag "-n --dry-run" help="Read upstream and hash the downloads, and build and release nothing"'
+depends = ["build"]
+run = 'node scripts/publish.res.mjs ${usage_dry_run:+--dry-run}'
+
+[tasks.update]
+description = "Move this repository's tools, the ReScript compiler and the workflows' actions within their ranges: `update [--dry-run] [--major]`"
+usage = '''
+flag "-n --dry-run" help="Say what would move and write nothing"
+flag "--major" help="Cross the ranges package.json declares"
+'''
+depends = ["//:build"]
+run = """
+n=${usage_dry_run:+--dry-run}
+mise upgrade $n actionlint shellcheck
+node {{env.WORKSPACE}}/scripts/deps/actions.res.mjs $n ${usage_major:+--major}
+[ -z "$n" ] || { pnpm outdated; exit 0; }
+pnpm update ${usage_major:+--latest}
+"""
+
+[tasks.clean]
+description = "Remove what ReScript compiled and the archives a build wrote, never an installed dependency: `clean [--dry-run]`"
+usage = 'flag "-n --dry-run" help="List what would go and remove nothing"'
+depends = ["//:build"]
+run = "node {{env.WORKSPACE}}/scripts/clean.res.mjs"
+
+[tasks.verify]
+description = "What a commit has to pass: everything formatted, the glue's tests, the workflow linted and the bake file read"
+depends = ["build"]
+run = [
+	"rescript format --check && oxfmt --check {{vars.formatted}}",
+	"node --test 'tests/**/*.res.mjs'",
+	"actionlint .github/workflows/*.yml",
+	"cd images && docker buildx bake --print --progress=quiet > /dev/null",
+]
