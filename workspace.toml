@@ -6,3 +6,7 @@ base = "https://github.com/canmi21/canmi.git"
 packages = true
 actions = true
 images = true
+
+# The id space its docs/rfcs holds RFCs in, the workspace's scripts/rfcs reading it.
+[rfcs]
+ids = "monoflake"
