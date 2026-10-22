@@ -27,6 +27,6 @@ type hash
 @send external digest: (hash, string) => string = "digest"
 
 type spawned = {status: Nullable.t<int>}
-type options = {cwd: string, stdio: string}
+type options = {cwd: string, stdio: string, env?: dict<string>}
 @module("node:child_process")
 external spawnSync: (string, array<string>, options) => spawned = "spawnSync"

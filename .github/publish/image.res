@@ -91,15 +91,6 @@ let archive = (~runtime, ~version, ~architecture) =>
 /** One archive as the manifest lists it, with its image's digest where it was pushed. */
 type asset = {file: string, size: float, sha256: string, digest?: string}
 
-/** Where one architecture's build goes, its archive and its image pushed by digest alone, so both
- * hold the one manifest the build made. */
-let outputs = (~archive, ~image) => [
-  "--output",
-  `type=oci,dest=${archive}`,
-  "--output",
-  `type=image,name=${image},push-by-digest=true,name-canonical=true,push=true`,
-]
-
 /** The tags a version is published under, its own and `latest`, over each architecture's digest. */
 let tagged = (~image, ~version, digests) =>
   [

@@ -167,18 +167,6 @@ test("a manifest built by hand names no commit", () =>
   )
 )
 
-test("one build writes its archive and pushes its image by digest alone", () =>
-  deepEqual(
-    Image.outputs(~archive="dist/workerd.tar", ~image="docker.io/canmi/workerd"),
-    [
-      "--output",
-      "type=oci,dest=dist/workerd.tar",
-      "--output",
-      "type=image,name=docker.io/canmi/workerd,push-by-digest=true,name-canonical=true,push=true",
-    ],
-  )
-)
-
 test("a version is tagged as itself and latest over each architecture's digest", () =>
   deepEqual(
     Image.tagged(~image="docker.io/canmi/wasmtime", ~version="49.0.4", ["sha256:aa", "sha256:bb"]),

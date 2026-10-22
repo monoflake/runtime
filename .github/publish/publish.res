@@ -96,12 +96,14 @@ let released = async tag => {
 
 let shown = arg => arg->String.includes(" ") ? `'${arg}'` : arg
 
-/** A command printed, then run unless the run is dry. */
-let run = (command, args, ~cwd=root) => {
-  Console.log(`  $ ${[command, ...args]->Array.map(shown)->Array.join(" ")}`)
+/** A command printed with the variables it is given, then run unless the run is dry. */
+let run = (command, args, ~cwd=root, ~env=[]) => {
+  let given = env->Array.map(((key, value)) => `${key}=${shown(value)}`)
+  Console.log(`  $ ${[...given, command, ...args->Array.map(shown)]->Array.join(" ")}`)
+  let env = Dict.fromArray([...Host.env->Dict.toArray, ...env])
   dry
     ? Ok()
-    : switch Host.spawnSync(command, args, {cwd, stdio: "inherit"}).status->Nullable.toOption {
+    : switch Host.spawnSync(command, args, {cwd, stdio: "inherit", env}).status->Nullable.toOption {
       | Some(0) => Ok()
       | _ => Error(`${command} ${args->Array.slice(~start=0, ~end=2)->Array.join(" ")} failed`)
       }
@@ -142,10 +144,12 @@ let buildArgs = (prefix, version, hashes) =>
     )),
   ]
 
-/** The digest a build pushed, as its metadata file records it. */
-let digestOf = path =>
+/** The digest a target's build pushed, as bake's metadata file records it under the target. */
+let digestOf = (path, name) =>
   readFile(path)->Result.flatMap(text =>
-    switch JSON.parseOrThrow(text)->Upstream.text("containerimage.digest") {
+    switch JSON.parseOrThrow(text)
+    ->Upstream.field(name)
+    ->Option.flatMap(target => target->Upstream.text("containerimage.digest")) {
     | Some(digest) => Ok(digest)
     | None => Error(`${path} records no containerimage.digest`)
     | exception JsExn(_) => Error(`${path} is not JSON`)
@@ -161,11 +165,9 @@ let release = ({name, prefix}, pin, version, hashes) => {
   let image = `docker.io/${namespace}/${name}`
   let archive = architecture => `${out}/${Image.archive(~runtime=name, ~version, ~architecture)}`
   let metadata = architecture => `${out}/${architecture}.json`
+  let set = (key, value) => ["--set", `${name}.${key}=${value}`]
   let args =
-    buildArgs(prefix, version, hashes)->Array.flatMap(((key, value)) => [
-      "--build-arg",
-      `${key}=${value}`,
-    ])
+    buildArgs(prefix, version, hashes)->Array.flatMap(((key, value)) => set(`args.${key}`, value))
   if !dry {
     Host.mkdirSync(out, {recursive: true})
   }
@@ -176,17 +178,18 @@ let release = ({name, prefix}, pin, version, hashes) => {
         "docker",
         [
           "buildx",
-          "build",
+          "bake",
+          "--file",
+          "docker-bake.hcl",
           "--provenance=false",
-          "--platform",
-          `linux/${architecture}`,
+          ...set("platform", `linux/${architecture}`),
           ...args,
-          ...Image.outputs(~archive=archive(architecture), ~image),
           "--metadata-file",
           metadata(architecture),
           name,
         ],
         ~cwd=`${root}/images`,
+        ~env=[("ARCHIVE", archive(architecture)), ("IMAGE", image)],
       )
     )
   )
@@ -194,9 +197,9 @@ let release = ({name, prefix}, pin, version, hashes) => {
     architectures(pin)->Array.reduce(Ok([]), (read, architecture) =>
       read->Result.flatMap(
         digests =>
-          (dry ? Ok(`<${architecture} digest>`) : digestOf(metadata(architecture)))->Result.map(
-            digest => [...digests, (architecture, digest)],
-          ),
+          (
+            dry ? Ok(`<${architecture} digest>`) : digestOf(metadata(architecture), name)
+          )->Result.map(digest => [...digests, (architecture, digest)]),
       )
     )
   )
