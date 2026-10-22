@@ -2,22 +2,24 @@
 services:
   workerd:
     image: canmi/workerd
+    # config.capnp listens on 25683, CLOUD typed on a phone's keypad.
     command: ["serve", "/worker/config.capnp"]
     volumes:
       - ./worker:/worker:ro
     ports:
-      - "8080:8080"
+      - "25683:25683"
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
 
   wasmtime:
     image: canmi/wasmtime
-    command: ["serve", "--addr", "0.0.0.0:8080", "/component/app.wasm"]
+    # 24947 is 0x6173, the as of the magic bytes every WebAssembly file opens with.
+    command: ["serve", "--addr", "0.0.0.0:24947", "/component/app.wasm"]
     volumes:
       - ./component:/component:ro
     ports:
-      - "8081:8080"
+      - "24947:24947"
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
