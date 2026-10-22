@@ -1,6 +1,6 @@
 /***
- * `node scripts/pins.res.mjs [--dry-run]`, run by hand from update, moving each Dockerfile's runtime
- * to the newest version released here, its base images moved by the workspace's images.res.
+ * `node scripts/pins.res.mjs [--dry-run]`, run by hand from update, moving each Dockerfile's
+ * runtime to the newest version released here, its base images moved by the workspace's images.res.
  */
 let dry = Host.argv->Array.includes("--dry-run")
 let root = Host.cwd()
