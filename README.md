@@ -6,12 +6,16 @@
 
 ```sh
 docker compose up
-#OR
+```
+
+That reads [docker-compose.yaml](docker-compose.yaml), see [Docker Compose](https://docs.docker.com/compose/); or pull each image on its own:
+
+```sh
 docker pull canmi/workerd
 docker pull canmi/wasmtime
 ```
 
-Compose serves `worker/config.capnp` on **25683** and `component/app.wasm` on **24947**.
+Compose serves `worker/config.capnp` on 25683 and `component/app.wasm` on 24947.
 
 ## Containerd
 
