@@ -39,7 +39,7 @@ depends = ["//:build", "build"]
 run = """
 n=${usage_dry_run:+--dry-run}
 mise upgrade $n actionlint shellcheck
-node {{env.WORKSPACE}}/scripts/deps/actions.res.mjs $n ${usage_major:+--major} && node scripts/pins.res.mjs $n
+node {{env.WORKSPACE}}/scripts/deps/actions.res.mjs $n ${usage_major:+--major} && node {{env.WORKSPACE}}/scripts/deps/images.res.mjs $n && node scripts/pins.res.mjs $n
 [ -z "$n" ] || { pnpm outdated; exit 0; }
 pnpm update ${usage_major:+--latest}
 """

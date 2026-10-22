@@ -1,6 +1,6 @@
 /***
- * `node scripts/pins.res.mjs [--dry-run]`, run by hand from update, moving each Dockerfile's base
- * images to the digest their tag names now and its runtime to the newest version released here.
+ * `node scripts/pins.res.mjs [--dry-run]`, run by hand from update, moving each Dockerfile's runtime
+ * to the newest version released here, its base images moved by the workspace's images.res.
  */
 let dry = Host.argv->Array.includes("--dry-run")
 let root = Host.cwd()
@@ -10,66 +10,11 @@ let token = switch Host.env->Dict.get("GITHUB_TOKEN") {
 | None => Host.env->Dict.get("GH_TOKEN")
 }
 
-/** The index and manifest types a registry is asked to answer a tag with. */
-let accepted = [
-  "application/vnd.oci.image.index.v1+json",
-  "application/vnd.docker.distribution.manifest.list.v2+json",
-  "application/vnd.oci.image.manifest.v1+json",
-  "application/vnd.docker.distribution.manifest.v2+json",
-]->Array.join(", ")
-
 let reached = async (url, init) =>
   switch await Host.fetch(url, init) {
   | response => Ok(response)
   | exception JsExn(e) => Error(`${url}: ${e->JsExn.message->Option.getOr("not reached")}`)
   }
-
-/** The digest a tag names now, asked by HEAD, so nothing is pulled, with the anonymous token a
- * registry's challenge asks for. */
-let digestOf = async (image, tag) => {
-  let (host, name) = Dockerfiles.located(image)
-  let url = `https://${host}/v2/${name}/manifests/${tag}`
-  let ask = async bearer => {
-    let headers = dict{"accept": accepted}
-    bearer->Option.forEach(bearer => headers->Dict.set("authorization", `Bearer ${bearer}`))
-    await reached(url, {method: "HEAD", headers})
-  }
-  let found = response =>
-    switch response->Host.headers->Host.header("docker-content-digest")->Nullable.toOption {
-    | Some(digest) if response->Host.ok => Ok(digest)
-    | _ => Error(`${url} answered ${response->Host.status->Int.toString} with no digest`)
-    }
-  switch await ask(None) {
-  | Error(why) => Error(why)
-  | Ok(response) if response->Host.status != 401 => found(response)
-  | Ok(response) =>
-    switch response
-    ->Host.headers
-    ->Host.header("www-authenticate")
-    ->Nullable.toOption
-    ->Option.flatMap(Dockerfiles.challenged) {
-    | None => Error(`${url} asked for a token it did not say how to get`)
-    | Some(realm) =>
-      switch await reached(realm, {headers: dict{}}) {
-      | Error(why) => Error(why)
-      | Ok(answer) =>
-        let text = await answer->Host.text
-        switch JSON.parseOrThrow(text) {
-        | json =>
-          switch (json->Image.text("token"), json->Image.text("access_token")) {
-          | (Some(bearer), _) | (None, Some(bearer)) =>
-            switch await ask(Some(bearer)) {
-            | Ok(response) => found(response)
-            | Error(why) => Error(why)
-            }
-          | (None, None) => Error(`${realm} gave no token`)
-          }
-        | exception JsExn(_) => Error(`${realm} answered with no JSON`)
-        }
-      }
-    }
-  }
-}
 
 /** A JSON document from GitHub, with the token where one is set. */
 let github = async url => {
@@ -149,46 +94,12 @@ let main = async () => {
   let texts = Dict.fromArray(files->Array.map(((name, file)) => (name, Host.readFileSync(file))))
   let failed = ref(false)
 
-  // Each base image's tag asked once, though several stages pin it.
-  let digests = Dict.make()
-  let tags =
-    texts
-    ->Dict.valuesToArray
-    ->Array.flatMap(Dockerfiles.bases)
-    ->Array.map(({image, tag}) => `${image}:${tag}`)
-    ->Array.reduce([], (seen, key) => seen->Array.includes(key) ? seen : [...seen, key])
-  for index in 0 to tags->Array.length - 1 {
-    let key = tags->Array.getUnsafe(index)
-    let at = key->String.lastIndexOf(":")
-    let (image, tag) = (key->String.slice(~start=0, ~end=at), key->String.slice(~start=at + 1))
-    switch await digestOf(image, tag) {
-    | Ok(digest) => digests->Dict.set(key, digest)
-    | Error(why) =>
-      Console.log(`pins: ${key}, its digest could not be read: ${why}`)
-      failed := true
-    }
-  }
-
   let releases = await github(`https://api.github.com/repos/${repository}/releases?per_page=100`)
   for index in 0 to files->Array.length - 1 {
     let (name, file) = files->Array.getUnsafe(index)
     let prefix = name->String.toUpperCase
     let text = texts->Dict.getUnsafe(name)
-    Dockerfiles.bases(text)
-    ->Array.reduce([], (seen, base) =>
-      seen->Array.some(({image, tag}: Dockerfiles.base) => image == base.image && tag == base.tag)
-        ? seen
-        : [...seen, base]
-    )
-    ->Array.forEach(({image, tag, digest}) =>
-      switch digests->Dict.get(`${image}:${tag}`) {
-      | Some(now) if now != digest =>
-        Console.log(`pins: ${name} ${image}:${tag} ${digest} -> ${now}`)
-      | Some(_) => Console.log(`pins: ${name} ${image}:${tag}, its tag's digest still`)
-      | None => ()
-      }
-    )
-    let based = Dockerfiles.rebased(text, digests)
+    let based = text
     let pinned = switch (Image.read(text, ~prefix), releases) {
     | (Error(why), _) | (_, Error(why)) =>
       Console.log(`pins: ${name}, its version not moved: ${why}`)
