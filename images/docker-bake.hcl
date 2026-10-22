@@ -10,13 +10,18 @@ variable "IMAGE" {
 	default = ""
 }
 
+# The version the archive names its image by, as Docker Hub tags it.
+variable "VERSION" {
+	default = ""
+}
+
 group "default" {
 	targets = ["workerd", "wasmtime"]
 }
 
 target "release" {
 	output = ARCHIVE == "" ? [] : [
-		"type=oci,dest=${ARCHIVE}",
+		"type=oci,dest=${ARCHIVE},name=${IMAGE}:${VERSION}",
 		"type=image,name=${IMAGE},push-by-digest=true,name-canonical=true,push=true",
 	]
 }

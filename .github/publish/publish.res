@@ -193,7 +193,7 @@ let build = ({name, prefix, upstream}, pin, version, hashes) => {
           name,
         ],
         ~cwd=`${root}/images`,
-        ~env=[("ARCHIVE", archive(architecture)), ("IMAGE", image)],
+        ~env=[("ARCHIVE", archive(architecture)), ("IMAGE", image), ("VERSION", version)],
       )
     )
   )
