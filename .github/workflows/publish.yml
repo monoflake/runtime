@@ -60,7 +60,7 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           username: canmi
-          password: ${{ secrets.DOCKERHUB_README_TOKEN }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: canmi/workerd
           short-description: ${{ steps.description.outputs.text }}
           readme-filepath: repos/monoflake/runtime/README.md
@@ -69,7 +69,7 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           username: canmi
-          password: ${{ secrets.DOCKERHUB_README_TOKEN }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: canmi/wasmtime
           short-description: ${{ steps.description.outputs.text }}
           readme-filepath: repos/monoflake/runtime/README.md
