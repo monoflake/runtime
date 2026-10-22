@@ -1,6 +1,6 @@
 # Runtime
 
-`workerd` and `wasmtime`, built as OCI images.
+**workerd** and **wasmtime**, built as [OCI images](https://github.com/opencontainers/image-spec/blob/main/manifest.md).
 
 ```sh
 docker pull canmi/workerd
