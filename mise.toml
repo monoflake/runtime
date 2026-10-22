@@ -20,7 +20,7 @@ rescript format --check; oxfmt --list-different {{vars.formatted}}; exit 0
 """
 
 [tasks.build]
-description = "Compile the glue under scripts/ and its tests"
+description = "Compile the glue under .github/publish/ and its tests"
 run = "rescript build"
 
 [tasks.publish]
@@ -30,7 +30,7 @@ flag "--docker" help="Push the newest runtime released here to Docker Hub, as it
 flag "-n --dry-run" help="Read upstream and hash the downloads, and build, release and push nothing"
 '''
 depends = ["build"]
-run = 'node scripts/publish.res.mjs ${usage_docker:+--docker} ${usage_dry_run:+--dry-run}'
+run = 'node .github/publish/publish.res.mjs ${usage_docker:+--docker} ${usage_dry_run:+--dry-run}'
 
 [tasks.update]
 description = "Move this repository's tools, the ReScript compiler and the workflows' actions within their ranges: `update [--dry-run] [--major]`"
@@ -58,7 +58,7 @@ description = "What a commit has to pass: everything formatted, the glue's tests
 depends = ["build"]
 run = [
 	"rescript format --check && oxfmt --check {{vars.formatted}}",
-	"node --test 'tests/**/*.res.mjs'",
+	"node --test '.github/publish/tests/**/*.res.mjs'",
 	"actionlint .github/workflows/*.yml",
 	"cd images && docker buildx bake --print --progress=quiet > /dev/null",
 ]

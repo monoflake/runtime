@@ -1,5 +1,5 @@
 # Each day, by hand, or when the platform asks, builds and releases each runtime upstream released
-# past the release delay that no tag here holds yet, scripts/publish.res.
+# past the release delay that no tag here holds yet, .github/publish/publish.res.
 name: publish
 
 on:

@@ -1,5 +1,5 @@
 # Pushes the newest runtime released here to Docker Hub where it lacks it, woken by publish, by hand
-# or each day after publish, scripts/publish.res.
+# or each day after publish, .github/publish/publish.res.
 name: docker
 
 on:

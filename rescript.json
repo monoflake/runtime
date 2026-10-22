@@ -1,8 +1,10 @@
 {
 	"name": "@monoflake/runtime",
 	"sources": [
-		{ "dir": "scripts", "subdirs": true },
-		{ "dir": "tests", "subdirs": true, "type": "dev" }
+		{
+			"dir": ".github/publish",
+			"subdirs": [{ "dir": "bindings" }, { "dir": "tests", "subdirs": true, "type": "dev" }]
+		}
 	],
 	"dependencies": [],
 	"package-specs": [{ "module": "esmodule", "in-source": true }],

@@ -1,7 +1,7 @@
 /***
- * `node scripts/publish.res.mjs [--docker] [--dry-run]`, releasing each runtime upstream released
- * past the delay that no tag here holds, or with `--docker` pushing the newest released here that
- * Docker Hub lacks, the dry run building nothing.
+ * `node .github/publish/publish.res.mjs [--docker] [--dry-run]`, releasing each runtime upstream
+ * released past the delay that no tag here holds, or with `--docker` pushing the newest released
+ * here that Docker Hub lacks, the dry run building nothing.
  */
 let refuse = reason => {
   Console.error(`publish: ${reason}`)
@@ -348,7 +348,7 @@ let publish = async (runtime, ~delay) => {
   }
 }
 
-let usage = "node scripts/publish.res.mjs [--docker] [--dry-run]"
+let usage = "node .github/publish/publish.res.mjs [--docker] [--dry-run]"
 switch Host.argv
 ->Array.slice(~start=2)
 ->Array.filter(arg => arg != "--docker" && arg != "--dry-run") {
