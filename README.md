@@ -1,6 +1,6 @@
 # Runtime
 
-**workerd** and **wasmtime**, built as OCI images.
+`workerd` and `wasmtime`, built as OCI images.
 
 ```sh
 docker pull canmi/workerd
