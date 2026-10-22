@@ -15,6 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  actions: write
   contents: write
 
 jobs:
@@ -42,3 +43,8 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           mise run publish
+      # What the token releases starts no workflow, so docker is woken by name to mirror it.
+      - name: wake docker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run docker.yml --repo "$GITHUB_REPOSITORY" --ref main

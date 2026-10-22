@@ -129,15 +129,40 @@ test("a pin with no version, a hash fetched by nothing or a hash twice is refuse
   deepEqual(Image.read(twice, ~prefix="WASMTIME")->Result.isError, true)
 })
 
-test("the manifest lists each architecture's asset, its size and its SHA-256", () =>
+test("an archive is named by the system before the machine, as uname -m names the machine", () => {
+  deepEqual(
+    Image.archive(~runtime="workerd", ~version="1.20261019.1", ~architecture="amd64"),
+    "workerd-1.20261019.1-linux-x86_64.tar",
+  )
+  deepEqual(
+    Image.archive(~runtime="wasmtime", ~version="49.0.4", ~architecture="arm64"),
+    "wasmtime-49.0.4-linux-aarch64.tar",
+  )
+})
+
+test("the manifest lists each archive in rdm's shape, by architecture, with the commit", () =>
   deepEqual(
     Image.manifest(
       ~runtime="workerd",
       ~version="1.20261019.1",
-      dict{"amd64": {name: "workerd-1.20261019.1-amd64.tar", size: 3., sha256: a}},
+      ~sha="abc",
+      dict{
+        "arm64": {file: "workerd-1.20261019.1-linux-aarch64.tar", size: 4., sha256: b},
+        "amd64": {file: "workerd-1.20261019.1-linux-x86_64.tar", size: 3., sha256: a},
+      },
     )->JSON.parseOrThrow,
     JSON.parseOrThrow(
-      `{"runtime": "workerd", "version": "1.20261019.1", "archives": {"amd64": {"name": "workerd-1.20261019.1-amd64.tar", "size": 3, "sha256": "${a}"}}}`,
+      `{"runtime": "workerd", "version": "1.20261019.1", "sha": "abc", "assets": [
+        {"target": "linux-x86_64", "kind": "oci", "file": "workerd-1.20261019.1-linux-x86_64.tar", "size": 3, "sha256": "${a}"},
+        {"target": "linux-aarch64", "kind": "oci", "file": "workerd-1.20261019.1-linux-aarch64.tar", "size": 4, "sha256": "${b}"}
+      ]}`,
     ),
+  )
+)
+
+test("a manifest built by hand names no commit", () =>
+  deepEqual(
+    Image.manifest(~runtime="wasmtime", ~version="49.0.4", dict{})->JSON.parseOrThrow,
+    JSON.parseOrThrow(`{"runtime": "wasmtime", "version": "49.0.4", "assets": []}`),
   )
 )

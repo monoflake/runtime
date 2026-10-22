@@ -24,10 +24,13 @@ description = "Compile the glue under scripts/ and its tests"
 run = "rescript build"
 
 [tasks.publish]
-description = "Build and release each runtime upstream released past the delay and not yet tagged here: `publish [--dry-run]`"
-usage = 'flag "-n --dry-run" help="Read upstream and hash the downloads, and build and release nothing"'
+description = "Build and release each runtime upstream released past the delay and not yet tagged here, or push the newest released here to Docker Hub: `publish [--docker] [--dry-run]`"
+usage = '''
+flag "--docker" help="Push the newest runtime released here to Docker Hub, as its version and latest, where Docker Hub lacks it"
+flag "-n --dry-run" help="Read upstream and hash the downloads, and build, release and push nothing"
+'''
 depends = ["build"]
-run = 'node scripts/publish.res.mjs ${usage_dry_run:+--dry-run}'
+run = 'node scripts/publish.res.mjs ${usage_docker:+--docker} ${usage_dry_run:+--dry-run}'
 
 [tasks.update]
 description = "Move this repository's tools, the ReScript compiler and the workflows' actions within their ranges: `update [--dry-run] [--major]`"

@@ -73,28 +73,49 @@ let at = (address, ~prefix, ~version) =>
 /** The release's tag, which says whether the version was built already. */
 let tag = (~runtime, ~version) => `${runtime}-${version}`
 
+/** The machine an architecture is filed under, as `uname -m` prints it, by Docker's name. */
+let machine = architecture =>
+  switch architecture {
+  | "amd64" => "x86_64"
+  | "arm64" => "aarch64"
+  | other => other
+  }
+
+/** What an archive is built for, the system before the machine, as rdm names its own. */
+let target = architecture => `linux-${machine(architecture)}`
+
 /** An architecture's archive, as the release names the asset. */
-let archive = (~runtime, ~version, ~architecture) => `${runtime}-${version}-${architecture}.tar`
+let archive = (~runtime, ~version, ~architecture) =>
+  `${runtime}-${version}-${target(architecture)}.tar`
 
 /** One archive as the manifest lists it. */
-type asset = {name: string, size: float, sha256: string}
+type asset = {file: string, size: float, sha256: string}
 
-/** The manifest a release carries, each architecture's asset with its size and SHA-256. */
-let manifest = (~runtime, ~version, assets: dict<asset>) =>
-  JSON.Encode.object(
-    dict{
-      "runtime": JSON.Encode.string(runtime),
-      "version": JSON.Encode.string(version),
-      "archives": JSON.Encode.object(
-        assets->Dict.mapValues(({name, size, sha256}) =>
-          JSON.Encode.object(
-            dict{
-              "name": JSON.Encode.string(name),
-              "size": JSON.Encode.float(size),
-              "sha256": JSON.Encode.string(sha256),
-            },
-          )
-        ),
-      ),
-    },
-  )->JSON.stringify(~space=2) ++ "\n"
+/** The manifest a release carries in rdm's shape, each archive with its target, size and SHA-256,
+ * and the commit that built it where one is known. */
+let manifest = (~runtime, ~version, ~sha=?, assets: dict<asset>) => {
+  let fields = dict{
+    "runtime": JSON.Encode.string(runtime),
+    "version": JSON.Encode.string(version),
+  }
+  sha->Option.forEach(sha => fields->Dict.set("sha", JSON.Encode.string(sha)))
+  fields->Dict.set(
+    "assets",
+    assets
+    ->Dict.toArray
+    ->Array.toSorted(((a, _), (b, _)) => String.compare(a, b))
+    ->Array.map(((architecture, {file, size, sha256})) =>
+      JSON.Encode.object(
+        dict{
+          "target": JSON.Encode.string(target(architecture)),
+          "kind": JSON.Encode.string("oci"),
+          "file": JSON.Encode.string(file),
+          "size": JSON.Encode.float(size),
+          "sha256": JSON.Encode.string(sha256),
+        },
+      )
+    )
+    ->JSON.Encode.array,
+  )
+  JSON.Encode.object(fields)->JSON.stringify(~space=2) ++ "\n"
+}
