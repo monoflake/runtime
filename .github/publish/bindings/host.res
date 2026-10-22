@@ -32,3 +32,8 @@ type spawned = {status: Nullable.t<int>}
 type options = {cwd: string, stdio: string, env?: dict<string>}
 @module("node:child_process")
 external spawnSync: (string, array<string>, options) => spawned = "spawnSync"
+
+type captured = {status: Nullable.t<int>, stdout: Nullable.t<string>}
+type capturing = {cwd: string, encoding: string}
+@module("node:child_process")
+external capture: (string, array<string>, capturing) => captured = "spawnSync"

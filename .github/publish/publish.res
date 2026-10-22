@@ -1,6 +1,6 @@
 /***
  * `node .github/publish/publish.res.mjs [--dry-run]`, each runtime's version past the delay that no
- * release here lists built once into the day's release and Docker Hub, a dry run building none.
+ * release here lists built once, pushed to Docker Hub and named in `dist/built.json`.
  */
 let refuse = reason => {
   Console.error(`publish: ${reason}`)
@@ -34,7 +34,6 @@ let dry = Host.argv->Array.includes("--dry-run")
 
 /** The Docker Hub account the images are pushed under, the author's own, RFC m7rkq. */
 let namespace = "canmi"
-let repository = Host.env->Dict.get("GITHUB_REPOSITORY")->Option.getOr("monoflake/runtime")
 let token = switch Host.env->Dict.get("GITHUB_TOKEN") {
 | Some(token) => Some(token)
 | None => Host.env->Dict.get("GH_TOKEN")
@@ -183,36 +182,22 @@ let commitOf = async (repository, tag) => {
   }
 }
 
-/** A release's manifest as it was uploaded, or none where the release carries none. */
-let manifestOf = async release =>
-  switch release
-  ->Image.list("assets")
-  ->Array.find(asset => asset->Image.text("name") == Some(Image.manifestFile))
-  ->Option.flatMap(asset => asset->Image.text("browser_download_url")) {
-  | None => Ok(None)
-  | Some(url) => (await json(url))->Result.map(manifest => Some(manifest))
+/** The commit here a run builds, as the workflow names it, or the checkout's own. */
+let head = switch Host.env->Dict.get("GITHUB_SHA") {
+| Some(sha) => sha
+| None =>
+  switch Host.capture(
+    "git",
+    ["rev-parse", "HEAD"],
+    {cwd: root, encoding: "utf8"},
+  ).stdout->Nullable.toOption {
+  | Some(sha) => sha->String.trim
+  | None => "unknown"
   }
-
-/** Whether a published release here lists the version in its manifest, only those carrying its
- * archives read. */
-let releasedHere = async (releases, ~runtime, ~version) =>
-  await each(
-    releases->Array.filter(release => Image.holds(release, ~runtime, ~version)),
-    manifestOf,
-  )->Promise.thenResolve(read =>
-    read->Result.map(manifests =>
-      manifests->Array.some(
-        manifest =>
-          manifest->Option.mapOr(false, manifest => Image.lists(manifest, ~runtime, ~version)),
-      )
-    )
-  )
-
-/** A version built, its archives, its entry in the day's manifest and its row in the notes. */
-type built = {archives: array<string>, entry: JSON.t, row: string}
+}
 
 /** Each architecture built once into its archive and its image pushed by digest, the image then
- * tagged over both, and the version's entry made for the day's manifest. */
+ * tagged over both, and the version named as `built.json` names it. */
 let build = ({name, prefix}, pin, version, hashes, upstream: Image.upstream) => {
   let out = `${root}/dist/${name}-${version}`
   let image = `docker.io/${namespace}/${name}`
@@ -264,51 +249,24 @@ let build = ({name, prefix}, pin, version, hashes, upstream: Image.upstream) => 
       Image.tagged(~image, ~version, digests->Array.map(((_, digest)) => digest)),
     )->Result.map(() => digests)
   )
-  ->Result.map(digests => {
-    let assets = digests->Array.map(((architecture, digest)) => {
-      let file = Image.archive(~runtime=name, ~version, ~architecture)
-      let bytes = dry ? Uint8Array.fromLength(0) : Host.readBytes(archive(architecture))
-      let asset: Image.asset = {
-        file,
-        size: bytes->TypedArray.length->Int.toFloat,
-        sha256: sha256(bytes),
+  ->Result.map(digests =>
+    Image.built(
+      ~runtime=name,
+      ~version,
+      ~commit=head,
+      ~upstream,
+      ~row=Image.row(~runtime=name, ~version, ~upstream, ~image=`${namespace}/${name}`),
+      digests->Array.map(((architecture, digest)): Image.archived => {
+        architecture,
+        path: `dist/${name}-${version}/${Image.archive(~runtime=name, ~version, ~architecture)}`,
         digest,
-      }
-      (architecture, asset)
-    })
-    {
-      archives: architectures(pin)->Array.map(archive),
-      entry: Image.entry(
-        ~runtime=name,
-        ~version,
-        ~commit=?Host.env->Dict.get("GITHUB_SHA"),
-        ~upstream,
-        Dict.fromArray(assets),
-      ),
-      row: Image.row(~runtime=name, ~version, ~upstream, ~image=`${namespace}/${name}`),
-    }
-  })
-}
-
-/** Every release here, a page of a hundred at a time, drafts among them. */
-let releases = async () => {
-  let rec page = async (n, found) =>
-    switch await json(
-      `https://api.github.com/repos/${repository}/releases?per_page=100&page=${n->Int.toString}`,
-    ) {
-    | Error(why) => Error(why)
-    | Ok(listed) =>
-      switch listed->JSON.Decode.array {
-      | Some([]) => Ok(found)
-      | Some(list) => await page(n + 1, [...found, ...list])
-      | None => Error(`${repository}'s releases are not a list`)
-      }
-    }
-  await page(1, [])
+      }),
+    )
+  )
 }
 
 /** The version upstream released past the delay built, unless a release here lists it. */
-let publish = async (runtime, ~delay, ~releases) => {
+let publish = async (runtime, ~delay, ~listed) => {
   let {name, prefix, source, upstream} = runtime
   let file = `images/${name}/Dockerfile`
   switch readFile(file)->Result.flatMap(text => Image.read(text, ~prefix)) {
@@ -332,12 +290,11 @@ let publish = async (runtime, ~delay, ~releases) => {
         Console.log("  nothing past the delay")
         Ok(None)
       | Some(version) =>
-        switch await releasedHere(releases, ~runtime=name, ~version) {
-        | Error(why) => Error(why)
-        | Ok(true) =>
+        switch Image.listed(listed, ~runtime=name, ~version) {
+        | true =>
           Console.log(`  ${version}, released here already`)
           Ok(None)
-        | Ok(false) =>
+        | false =>
           Console.log(`  ${version}, which no release here lists`)
           let tag = `v${version}`
           switch await commitOf(upstream, tag) {
@@ -356,83 +313,22 @@ let publish = async (runtime, ~delay, ~releases) => {
   }
 }
 
-/** What was built released under the UTC day, a new release drafted whole and published last, or
- * the day's published one added to, its manifest merged and uploaded after archives and rows. */
-let release = async (builds, ~releases) => {
-  let tag = Image.day(Date.now())
-  let named = releases->Array.filter(release => release->Image.text("tag_name") == Some(tag))
-  let published =
-    named->Array.find(release => release->Image.field("draft") != Some(JSON.Encode.bool(true)))
-  let gh = args => run("gh", [...args, "--repo", repository])
-  let manifest = `${root}/dist/${Image.manifestFile}`
-  let write = existing => {
-    if !dry {
-      Host.mkdirSync(`${root}/dist`, {recursive: true})
-      Host.writeFileSync(
-        manifest,
-        Image.merged(existing, ~release=tag, builds->Array.map(({entry}) => entry)),
-      )
-    }
-  }
-  let rows = notes => builds->Array.reduce(notes, (notes, {row}) => Image.appended(notes, row))
-  switch published {
-  | Some(release) =>
-    Console.log(`release ${tag}, added to`)
-    switch await manifestOf(release) {
-    | Error(why) => Error(why)
-    | Ok(existing) =>
-      write(existing)
-      builds
-      ->Array.reduce(Ok(), (done, {archives}) =>
-        done->Result.flatMap(() => gh(["release", "upload", tag, ...archives, "--clobber"]))
-      )
-      ->Result.flatMap(() =>
-        gh(["release", "edit", tag, "--notes", rows(release->Image.text("body")->Option.getOr(""))])
-      )
-      ->Result.flatMap(() => gh(["release", "upload", tag, manifest, "--clobber"]))
-    }
-  | None =>
-    Console.log(`release ${tag}, new`)
-    write(None)
-    // A draft a failed run left under the day's name is put aside, so one release takes the name.
-    named
-    ->Array.reduce(Ok(), (done, _) =>
-      done->Result.flatMap(() => gh(["release", "delete", tag, "--yes"]))
-    )
-    ->Result.flatMap(() =>
-      gh(
-        [
-          "release",
-          "create",
-          tag,
-          "--draft",
-          "--title",
-          tag,
-          "--notes",
-          rows(""),
-          ...builds->Array.flatMap(({archives}) => archives),
-          manifest,
-        ],
-      )
-    )
-    ->Result.flatMap(() => gh(["release", "edit", tag, "--draft=false"]))
-  }
-}
+let built = `${root}/dist/built.json`
 
 switch Host.argv->Array.slice(~start=2) {
 | [] | ["--dry-run"] =>
   switch readFile("pnpm-workspace.yaml")->Result.flatMap(Upstream.delay) {
   | Error(why) => refuse(`pnpm-workspace.yaml: ${why}`)
   | Ok(delay) =>
-    switch await releases() {
+    switch Released.listed(~root) {
     | Error(why) => refuse(why)
-    | Ok(releases) =>
-      // One runtime failing is its own, so the other is still built and released.
+    | Ok(listed) =>
+      // One runtime failing is its own, so the other is still built and named for release.
       let outcomes =
         (
           await each(runtimes, async runtime => Ok((
             runtime.name,
-            await publish(runtime, ~delay, ~releases),
+            await publish(runtime, ~delay, ~listed),
           )))
         )->Result.getOr([])
       outcomes->Array.forEach(((name, outcome)) =>
@@ -441,19 +337,27 @@ switch Host.argv->Array.slice(~start=2) {
         | Ok(_) => ()
         }
       )
-      let builds = outcomes->Array.filterMap(((_, outcome)) =>
+      let artifacts = outcomes->Array.filterMap(((_, outcome)) =>
         switch outcome {
-        | Ok(Some(built)) => Some(built)
+        | Ok(Some(artifact)) => Some(artifact)
         | Ok(None) | Error(_) => None
         }
       )
-      let released = builds == [] ? Ok() : await release(builds, ~releases)
+      let document =
+        JSON.Encode.object(dict{"artifacts": JSON.Encode.array(artifacts)})->JSON.stringify(
+          ~space=2,
+        ) ++ "\n"
+      if dry {
+        Console.log(`would write dist/built.json naming ${artifacts->Array.length->Int.toString}`)
+      } else {
+        Host.mkdirSync(`${root}/dist`, {recursive: true})
+        Host.writeFileSync(built, document)
+        Console.log(`wrote dist/built.json naming ${artifacts->Array.length->Int.toString}`)
+      }
       let failed =
         outcomes->Array.filterMap(((name, outcome)) => Result.isError(outcome) ? Some(name) : None)
-      switch released {
-      | Error(why) => refuse(`not released: ${why}`)
-      | Ok() if failed != [] => refuse(`not published: ${failed->Array.join(", ")}`)
-      | Ok() => ()
+      if failed != [] {
+        refuse(`not built: ${failed->Array.join(", ")}`)
       }
     }
   }

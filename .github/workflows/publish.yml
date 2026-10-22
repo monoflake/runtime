@@ -1,5 +1,5 @@
-# Each day, by hand, or on a push to main, builds each runtime upstream released past the release
-# delay that no release here holds yet, and releases it here and on Docker Hub, .github/publish.
+# Each day, by hand, or on a push to main, builds each runtime upstream released past the delay that
+# no release here holds, pushes it to Docker Hub and releases it by the workspace's scripts/release.
 name: publish
 
 on:
@@ -27,6 +27,7 @@ jobs:
       - uses: canmi21/canmi/.github/actions/workspace@main
         with:
           path: monoflake/runtime
+          scripts: true
       # The OCI exporter needs a builder of its own, which the docker driver is not.
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # Docker Hub takes each image under the author's own account, RFC m7rkq.
@@ -34,12 +35,20 @@ jobs:
         with:
           username: canmi
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - working-directory: repos/monoflake/runtime
+      - name: build
+        working-directory: repos/monoflake/runtime
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           pnpm install --frozen-lockfile
           mise run publish
+      # What one runtime built is released though the other failed, and nothing where none built.
+      - name: release
+        if: ${{ !cancelled() }}
+        working-directory: repos/monoflake/runtime
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: mise run release
 
       # Docker Hub shows each image with this repository's readme and description, GitHub's kept.
       - name: description

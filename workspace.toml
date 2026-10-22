@@ -10,3 +10,8 @@ images = true
 # The id space its docs/rfcs holds RFCs in, the workspace's scripts/rfcs reading it.
 [rfcs]
 ids = "monoflake"
+
+# What the workspace's scripts/release takes, the built.json publish writes and the notes' columns.
+[release]
+built = "dist/built.json"
+columns = ["Runtime", "Version", "Commit", "Image"]

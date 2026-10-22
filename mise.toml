@@ -19,10 +19,17 @@ description = "Compile the glue under .github/publish/ and its tests"
 run = "rescript build"
 
 [tasks.publish]
-description = "Build each runtime upstream released past the delay and not yet tagged here, and release it here and on Docker Hub: `publish [--dry-run]`"
-usage = 'flag "-n --dry-run" help="Read upstream and hash the downloads, and build, push and release nothing"'
-depends = ["build"]
+description = "Build each runtime upstream released past the delay that no release here lists, push it to Docker Hub and name it in dist/built.json: `publish [--dry-run]`"
+usage = 'flag "-n --dry-run" help="Read upstream and hash the downloads, and build, push and write nothing"'
+depends = ["build", "//:build"]
 run = 'node .github/publish/publish.res.mjs ${usage_dry_run:+--dry-run}'
+
+# The day's release on GitHub, the workspace's scripts/release reading workspace.toml's [release].
+[tasks.release]
+description = "Put what dist/built.json names into the UTC day's release here: `release [--dry-run]`"
+usage = 'flag "-n --dry-run" help="Say what would be released and change nothing on GitHub"'
+depends = ["//:build"]
+run = 'node {{env.WORKSPACE}}/scripts/release/release.res.mjs ${usage_dry_run:+--dry-run}'
 
 # Its packages, actions and base images are the workspace's movers, workspace.toml's [update].
 [tasks.update]
@@ -31,7 +38,7 @@ usage = '''
 flag "-n --dry-run" help="Say what would move and write nothing"
 flag "--major" help="Taken by the workspace's movers; a runtime moves to the newest released here regardless"
 '''
-depends = ["build"]
+depends = ["build", "//:build"]
 run = "node scripts/pins.res.mjs ${usage_dry_run:+--dry-run}"
 
 [tasks.clean]
