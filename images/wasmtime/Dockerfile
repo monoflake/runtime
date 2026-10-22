@@ -1,7 +1,7 @@
 # wasmtime, the WebAssembly component runtime the machine driver runs in a container, RFC vr5lw.
-ARG WASMTIME_VERSION=49.0.4
-ARG WASMTIME_SHA256_AMD64=6561abd54bdf941b6519cce883e0857cc9bce94d92c65287ed838d895a27f5a9
-ARG WASMTIME_SHA256_ARM64=9c1a6298dfb0df3b1249b531375dfb9d0d3eb0f1e1959982e3bc767251eb705d
+ARG WASMTIME_VERSION=50.0.0
+ARG WASMTIME_SHA256_AMD64=77c19ee0437991f9ac7837b9c269d9c7076744f85dad263fea5214cc2723c7ff
+ARG WASMTIME_SHA256_ARM64=10f9ad1f8539d2e04e041cc622de6a270109ab1e43a6be1f69843c2082166832
 
 FROM --platform=$BUILDPLATFORM busybox:1.37.0-glibc@sha256:42a9ff19af33811ee466b24c66384461d37c32dcc28d1d27d49b8aca816bd5ee AS fetch-amd64
 ARG WASMTIME_VERSION
@@ -16,7 +16,7 @@ ADD --checksum=sha256:${WASMTIME_SHA256_ARM64} https://github.com/bytecodeallian
 FROM fetch-${TARGETARCH} AS fetch
 RUN mkdir /out && tar -xJf /wasmtime.tar.xz -C /out && mv /out/*/wasmtime /wasmtime
 
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:b7e81cb1af38d9345680e68bcf564d388f96304e25222030fc8c051faf8565b3
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
 ARG WASMTIME_VERSION
 LABEL org.opencontainers.image.version=${WASMTIME_VERSION}
 COPY --from=fetch --chmod=0755 /wasmtime /usr/local/bin/wasmtime
