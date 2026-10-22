@@ -1,0 +1,23 @@
+# Each runtime serving what is mounted beside it, worker/ for workerd and component/ for wasmtime.
+services:
+  workerd:
+    image: canmi/workerd
+    command: ["serve", "/worker/config.capnp"]
+    volumes:
+      - ./worker:/worker:ro
+    ports:
+      - "8080:8080"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  wasmtime:
+    image: canmi/wasmtime
+    command: ["serve", "--addr", "0.0.0.0:8080", "/component/app.wasm"]
+    volumes:
+      - ./component:/component:ro
+    ports:
+      - "8081:8080"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
