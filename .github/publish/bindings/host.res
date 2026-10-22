@@ -10,14 +10,19 @@
 @module("node:fs") external readFileSync: (string, @as("utf8") _) => string = "readFileSync"
 @module("node:fs") external readBytes: string => Uint8Array.t = "readFileSync"
 @module("node:fs") external writeFileSync: (string, string) => unit = "writeFileSync"
+@module("node:fs") external readdir: string => array<string> = "readdirSync"
+@module("node:fs") external existsSync: string => bool = "existsSync"
 type made = {recursive: bool}
 @module("node:fs") external mkdirSync: (string, made) => unit = "mkdirSync"
 
 type response
-type init = {headers: dict<string>}
+type init = {headers: dict<string>, method?: string}
 @val external fetch: (string, init) => promise<response> = "fetch"
 @get external ok: response => bool = "ok"
 @get external status: response => int = "status"
+type headers
+@get external headers: response => headers = "headers"
+@send external header: (headers, string) => Nullable.t<string> = "get"
 @send external text: response => promise<string> = "text"
 @send external arrayBuffer: response => promise<ArrayBuffer.t> = "arrayBuffer"
 

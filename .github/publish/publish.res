@@ -1,7 +1,6 @@
 /***
- * `node .github/publish/publish.res.mjs [--dry-run]`, releasing each runtime upstream released past
- * the delay that no tag here holds, to this repository and to Docker Hub from one build, the dry
- * run building nothing.
+ * `node .github/publish/publish.res.mjs [--dry-run]`, each runtime's version past the delay that no
+ * release here lists built once into the day's release and Docker Hub, a dry run building none.
  */
 let refuse = reason => {
   Console.error(`publish: ${reason}`)

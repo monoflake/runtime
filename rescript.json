@@ -4,6 +4,10 @@
 		{
 			"dir": ".github/publish",
 			"subdirs": [{ "dir": "bindings" }, { "dir": "tests", "subdirs": true, "type": "dev" }]
+		},
+		{
+			"dir": "scripts",
+			"subdirs": [{ "dir": "tests", "subdirs": true, "type": "dev" }]
 		}
 	],
 	"dependencies": [],

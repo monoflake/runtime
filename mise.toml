@@ -30,16 +30,16 @@ depends = ["build"]
 run = 'node .github/publish/publish.res.mjs ${usage_dry_run:+--dry-run}'
 
 [tasks.update]
-description = "Move this repository's tools, the ReScript compiler and the workflows' actions within their ranges: `update [--dry-run] [--major]`"
+description = "Move this repository's tools, the ReScript compiler, the workflows' actions and the Dockerfiles' pins within their ranges: `update [--dry-run] [--major]`"
 usage = '''
 flag "-n --dry-run" help="Say what would move and write nothing"
 flag "--major" help="Cross the ranges package.json declares"
 '''
-depends = ["//:build"]
+depends = ["//:build", "build"]
 run = """
 n=${usage_dry_run:+--dry-run}
 mise upgrade $n actionlint shellcheck
-node {{env.WORKSPACE}}/scripts/deps/actions.res.mjs $n ${usage_major:+--major}
+node {{env.WORKSPACE}}/scripts/deps/actions.res.mjs $n ${usage_major:+--major} && node scripts/pins.res.mjs $n
 [ -z "$n" ] || { pnpm outdated; exit 0; }
 pnpm update ${usage_major:+--latest}
 """
@@ -55,7 +55,7 @@ description = "What a commit has to pass: everything formatted, the glue's tests
 depends = ["build"]
 run = [
 	"rescript format --check && oxfmt --check {{vars.formatted}}",
-	"node --test '.github/publish/tests/**/*.res.mjs'",
+	"node --test '.github/publish/tests/**/*.res.mjs' 'scripts/tests/**/*.res.mjs'",
 	"actionlint .github/workflows/*.yml",
 	"cd images && docker buildx bake --print --progress=quiet > /dev/null",
 ]
