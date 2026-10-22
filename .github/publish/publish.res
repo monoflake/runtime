@@ -1,7 +1,7 @@
 /***
- * `node .github/publish/publish.res.mjs [--docker] [--dry-run]`, releasing each runtime upstream
- * released past the delay that no tag here holds, or with `--docker` pushing the newest released
- * here that Docker Hub lacks, the dry run building nothing.
+ * `node .github/publish/publish.res.mjs [--dry-run]`, releasing each runtime upstream released past
+ * the delay that no tag here holds, to this repository and to Docker Hub from one build, the dry
+ * run building nothing.
  */
 let refuse = reason => {
   Console.error(`publish: ${reason}`)
@@ -20,7 +20,6 @@ let runtimes = [
 
 let root = Host.cwd()
 let dry = Host.argv->Array.includes("--dry-run")
-let docker = Host.argv->Array.includes("--docker")
 
 /** The Docker Hub account the images are pushed under, the author's own, RFC m7rkq. */
 let namespace = "canmi"
@@ -143,14 +142,30 @@ let buildArgs = (prefix, version, hashes) =>
     )),
   ]
 
-/** Every architecture's archive built, then the release made of them and their manifest. */
+/** The digest a build pushed, as its metadata file records it. */
+let digestOf = path =>
+  readFile(path)->Result.flatMap(text =>
+    switch JSON.parseOrThrow(text)->Upstream.text("containerimage.digest") {
+    | Some(digest) => Ok(digest)
+    | None => Error(`${path} records no containerimage.digest`)
+    | exception JsExn(_) => Error(`${path} is not JSON`)
+    }
+  )
+
+/** Each architecture built once into its archive and its image pushed by digest, the image then
+ * tagged over both, and the release drafted with the archives and their manifest, published last
+ * so its tag stands only for a release whose assets are all up. */
 let release = ({name, prefix}, pin, version, hashes) => {
   let tag = Image.tag(~runtime=name, ~version)
   let out = `${root}/dist/${tag}`
+  let image = `docker.io/${namespace}/${name}`
   let archive = architecture => `${out}/${Image.archive(~runtime=name, ~version, ~architecture)}`
-  let set = (key, value) => ["--set", `${name}.${key}=${value}`]
+  let metadata = architecture => `${out}/${architecture}.json`
   let args =
-    buildArgs(prefix, version, hashes)->Array.flatMap(((key, value)) => set(`args.${key}`, value))
+    buildArgs(prefix, version, hashes)->Array.flatMap(((key, value)) => [
+      "--build-arg",
+      `${key}=${value}`,
+    ])
   if !dry {
     Host.mkdirSync(out, {recursive: true})
   }
@@ -161,29 +176,46 @@ let release = ({name, prefix}, pin, version, hashes) => {
         "docker",
         [
           "buildx",
-          "bake",
-          "--file",
-          "docker-bake.hcl",
+          "build",
           "--provenance=false",
-          ...set("platform", `linux/${architecture}`),
-          ...set("tags", `${name}:${version}`),
-          ...set("output", `type=oci,dest=${archive(architecture)}`),
+          "--platform",
+          `linux/${architecture}`,
           ...args,
+          ...Image.outputs(~archive=archive(architecture), ~image),
+          "--metadata-file",
+          metadata(architecture),
           name,
         ],
         ~cwd=`${root}/images`,
       )
     )
   )
-  ->Result.flatMap(() => {
+  ->Result.flatMap(() =>
+    architectures(pin)->Array.reduce(Ok([]), (read, architecture) =>
+      read->Result.flatMap(
+        digests =>
+          (dry ? Ok(`<${architecture} digest>`) : digestOf(metadata(architecture)))->Result.map(
+            digest => [...digests, (architecture, digest)],
+          ),
+      )
+    )
+  )
+  ->Result.flatMap(digests =>
+    run(
+      "docker",
+      Image.tagged(~image, ~version, digests->Array.map(((_, digest)) => digest)),
+    )->Result.map(() => digests)
+  )
+  ->Result.flatMap(digests => {
     let manifest = `${out}/manifest.json`
     if !dry {
-      let assets = architectures(pin)->Array.map(architecture => {
+      let assets = digests->Array.map(((architecture, digest)) => {
         let bytes = Host.readBytes(archive(architecture))
         let asset: Image.asset = {
           file: Image.archive(~runtime=name, ~version, ~architecture),
           size: bytes->TypedArray.length->Int.toFloat,
           sha256: sha256(bytes),
+          digest,
         }
         (architecture, asset)
       })
@@ -205,106 +237,18 @@ let release = ({name, prefix}, pin, version, hashes) => {
         tag,
         "--repo",
         repository,
+        "--draft",
         "--title",
         tag,
         "--notes",
-        `${name} ${version} as upstream released it, an OCI archive per architecture.`,
+        `${name} ${version} as upstream released it, an OCI archive per architecture, and ${namespace}/${name}:${version} on Docker Hub.`,
         ...architectures(pin)->Array.map(archive),
         manifest,
       ],
+    )->Result.flatMap(() =>
+      run("gh", ["release", "edit", tag, "--repo", repository, "--draft=false"])
     )
   })
-}
-
-/** The newest version of `name` released here, read from this repository's release tags. */
-let newest = async name =>
-  (await fetched(`https://api.github.com/repos/${repository}/releases?per_page=100`, Host.text))
-  ->Result.flatMap(text =>
-    switch JSON.parseOrThrow(text)->JSON.Decode.array {
-    | Some(releases) => Ok(releases)
-    | None => Error(`${repository}'s releases are not a list`)
-    | exception JsExn(_) => Error(`${repository}'s releases are not JSON`)
-    }
-  )
-  ->Result.map(releases =>
-    releases
-    ->Array.filterMap(release => release->Upstream.text("tag_name"))
-    ->Array.filterMap(tag =>
-      tag->String.startsWith(`${name}-`)
-        ? Some(tag->String.slice(~start=name->String.length + 1))
-        : None
-    )
-    ->Array.filterMap(version => Upstream.numbers(version)->Option.map(n => (n, version)))
-    ->Array.toSorted(((a, _), (b, _)) => Int.toFloat(Upstream.compare(b, a)))
-    ->Array.get(0)
-    ->Option.map(((_, version)) => version)
-  )
-
-/** Whether Docker Hub holds `version` of `name` under the author's account. */
-let pushed = async (name, version) => {
-  let url = `https://hub.docker.com/v2/namespaces/${namespace}/repositories/${name}/tags/${version}`
-  switch await Host.fetch(url, {headers: headers(url)}) {
-  | response if response->Host.ok => Ok(true)
-  | response if response->Host.status == 404 => Ok(false)
-  | response => Error(`${url} answered ${response->Host.status->Int.toString}`)
-  | exception JsExn(e) => Error(`${url}: ${e->JsExn.message->Option.getOr("not reached")}`)
-  }
-}
-
-/** Every architecture's image pushed to Docker Hub as one, under `version` and `latest`, built
- * from the arguments its release was. */
-let push = ({name, prefix}, pin, version, hashes) => {
-  let image = `docker.io/${namespace}/${name}`
-  run(
-    "docker",
-    [
-      "buildx",
-      "build",
-      "--provenance=false",
-      "--platform",
-      architectures(pin)->Array.map(architecture => `linux/${architecture}`)->Array.join(","),
-      ...buildArgs(prefix, version, hashes)->Array.flatMap(((key, value)) => [
-        "--build-arg",
-        `${key}=${value}`,
-      ]),
-      "--tag",
-      `${image}:${version}`,
-      "--tag",
-      `${image}:latest`,
-      "--push",
-      name,
-    ],
-    ~cwd=`${root}/images`,
-  )
-}
-
-/** The newest release here pushed to Docker Hub, unless Docker Hub holds it already. */
-let mirror = async runtime => {
-  let {name, prefix} = runtime
-  let file = `images/${name}/Dockerfile`
-  switch readFile(file)->Result.flatMap(text => Image.read(text, ~prefix)) {
-  | Error(why) => Error(`${file}: ${why}`)
-  | Ok(pin) =>
-    Console.log(`${name}:`)
-    switch await newest(name) {
-    | Error(why) => Error(why)
-    | Ok(None) =>
-      Console.log(`  nothing released here yet`)
-      Ok()
-    | Ok(Some(version)) =>
-      switch await pushed(name, version) {
-      | Error(why) => Error(why)
-      | Ok(true) =>
-        Console.log(`  ${version}, on Docker Hub already as ${namespace}/${name}:${version}`)
-        Ok()
-      | Ok(false) =>
-        Console.log(`  ${version}, which Docker Hub has no ${namespace}/${name}:${version} for`)
-        (await hashes(runtime, pin, version))->Result.flatMap(hashes =>
-          push(runtime, pin, version, hashes)
-        )
-      }
-    }
-  }
 }
 
 let publish = async (runtime, ~delay) => {
@@ -348,25 +292,8 @@ let publish = async (runtime, ~delay) => {
   }
 }
 
-let usage = "node .github/publish/publish.res.mjs [--docker] [--dry-run]"
-switch Host.argv
-->Array.slice(~start=2)
-->Array.filter(arg => arg != "--docker" && arg != "--dry-run") {
-| [] if docker =>
-  let failed = (
-    await each(runtimes, async runtime => Ok(
-      switch await mirror(runtime) {
-      | Ok() => None
-      | Error(why) =>
-        Console.error(`publish: ${why}`)
-        Some(runtime.name)
-      },
-    ))
-  )->Result.mapOr([], found => found->Array.filterMap(x => x))
-  if failed != [] {
-    refuse(`not pushed: ${failed->Array.join(", ")}`)
-  }
-| [] =>
+switch Host.argv->Array.slice(~start=2) {
+| [] | ["--dry-run"] =>
   switch readFile("pnpm-workspace.yaml")->Result.flatMap(Upstream.delay) {
   | Error(why) => refuse(`pnpm-workspace.yaml: ${why}`)
   | Ok(delay) =>
@@ -385,5 +312,5 @@ switch Host.argv
       refuse(`not published: ${failed->Array.join(", ")}`)
     }
   }
-| _ => refuse(usage)
+| _ => refuse("node .github/publish/publish.res.mjs [--dry-run]")
 }

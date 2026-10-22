@@ -88,8 +88,30 @@ let target = architecture => `linux-${machine(architecture)}`
 let archive = (~runtime, ~version, ~architecture) =>
   `${runtime}-${version}-${target(architecture)}.tar`
 
-/** One archive as the manifest lists it. */
-type asset = {file: string, size: float, sha256: string}
+/** One archive as the manifest lists it, with its image's digest where it was pushed. */
+type asset = {file: string, size: float, sha256: string, digest?: string}
+
+/** Where one architecture's build goes, its archive and its image pushed by digest alone, so both
+ * hold the one manifest the build made. */
+let outputs = (~archive, ~image) => [
+  "--output",
+  `type=oci,dest=${archive}`,
+  "--output",
+  `type=image,name=${image},push-by-digest=true,name-canonical=true,push=true`,
+]
+
+/** The tags a version is published under, its own and `latest`, over each architecture's digest. */
+let tagged = (~image, ~version, digests) =>
+  [
+    "buildx",
+    "imagetools",
+    "create",
+    "--tag",
+    `${image}:${version}`,
+    "--tag",
+    `${image}:latest`,
+    ...digests->Array.map(digest => `${image}@${digest}`),
+  ]
 
 /** The manifest a release carries in rdm's shape, each archive with its target, size and SHA-256,
  * and the commit that built it where one is known. */
@@ -104,17 +126,17 @@ let manifest = (~runtime, ~version, ~sha=?, assets: dict<asset>) => {
     assets
     ->Dict.toArray
     ->Array.toSorted(((a, _), (b, _)) => String.compare(a, b))
-    ->Array.map(((architecture, {file, size, sha256})) =>
-      JSON.Encode.object(
-        dict{
-          "target": JSON.Encode.string(target(architecture)),
-          "kind": JSON.Encode.string("oci"),
-          "file": JSON.Encode.string(file),
-          "size": JSON.Encode.float(size),
-          "sha256": JSON.Encode.string(sha256),
-        },
-      )
-    )
+    ->Array.map(((architecture, {file, size, sha256, ?digest})) => {
+      let asset = dict{
+        "target": JSON.Encode.string(target(architecture)),
+        "kind": JSON.Encode.string("oci"),
+        "file": JSON.Encode.string(file),
+        "size": JSON.Encode.float(size),
+        "sha256": JSON.Encode.string(sha256),
+      }
+      digest->Option.forEach(digest => asset->Dict.set("digest", JSON.Encode.string(digest)))
+      JSON.Encode.object(asset)
+    })
     ->JSON.Encode.array,
   )
   JSON.Encode.object(fields)->JSON.stringify(~space=2) ++ "\n"

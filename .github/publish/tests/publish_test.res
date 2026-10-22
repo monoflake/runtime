@@ -166,3 +166,54 @@ test("a manifest built by hand names no commit", () =>
     JSON.parseOrThrow(`{"runtime": "wasmtime", "version": "49.0.4", "assets": []}`),
   )
 )
+
+test("one build writes its archive and pushes its image by digest alone", () =>
+  deepEqual(
+    Image.outputs(~archive="dist/workerd.tar", ~image="docker.io/canmi/workerd"),
+    [
+      "--output",
+      "type=oci,dest=dist/workerd.tar",
+      "--output",
+      "type=image,name=docker.io/canmi/workerd,push-by-digest=true,name-canonical=true,push=true",
+    ],
+  )
+)
+
+test("a version is tagged as itself and latest over each architecture's digest", () =>
+  deepEqual(
+    Image.tagged(~image="docker.io/canmi/wasmtime", ~version="49.0.4", ["sha256:aa", "sha256:bb"]),
+    [
+      "buildx",
+      "imagetools",
+      "create",
+      "--tag",
+      "docker.io/canmi/wasmtime:49.0.4",
+      "--tag",
+      "docker.io/canmi/wasmtime:latest",
+      "docker.io/canmi/wasmtime@sha256:aa",
+      "docker.io/canmi/wasmtime@sha256:bb",
+    ],
+  )
+)
+
+test("an archive pushed names its image's digest in the manifest", () =>
+  deepEqual(
+    Image.manifest(
+      ~runtime="wasmtime",
+      ~version="49.0.4",
+      dict{
+        "amd64": {
+          file: "wasmtime-49.0.4-linux-x86_64.tar",
+          size: 3.,
+          sha256: a,
+          digest: "sha256:aa",
+        },
+      },
+    )->JSON.parseOrThrow,
+    JSON.parseOrThrow(
+      `{"runtime": "wasmtime", "version": "49.0.4", "assets": [
+        {"target": "linux-x86_64", "kind": "oci", "file": "wasmtime-49.0.4-linux-x86_64.tar", "size": 3, "sha256": "${a}", "digest": "sha256:aa"}
+      ]}`,
+    ),
+  )
+)
