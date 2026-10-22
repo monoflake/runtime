@@ -205,3 +205,18 @@ test("an archive pushed names its image's digest in the manifest", () =>
     ),
   )
 )
+
+test("a release's notes are one line, upstream's release linked, its targets and the pull", () => {
+  deepEqual(
+    Image.notes(
+      ~runtime="workerd",
+      ~version="1.20261021.1",
+      ~upstream="cloudflare/workerd",
+      ~image="canmi/workerd",
+      ["amd64", "arm64"],
+    ),
+    "[workerd 1.20261021.1](https://github.com/cloudflare/workerd/releases/tag/v1.20261021.1) for linux-x86_64 and linux-aarch64, `docker pull canmi/workerd:1.20261021.1`",
+  )
+  deepEqual(Image.listed(["a"]), "a")
+  deepEqual(Image.listed(["a", "b", "c"]), "a, b and c")
+})

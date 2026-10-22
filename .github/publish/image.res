@@ -91,6 +91,24 @@ let archive = (~runtime, ~version, ~architecture) =>
 /** One archive as the manifest lists it, with its image's digest where it was pushed. */
 type asset = {file: string, size: float, sha256: string, digest?: string}
 
+/** Words read as prose, the last two joined by `and`. */
+let listed = words =>
+  switch words {
+  | [] => ""
+  | [one] => one
+  | _ =>
+    `${words->Array.slice(~start=0, ~end=-1)->Array.join(", ")} and ${words
+      ->Array.at(-1)
+      ->Option.getOr("")}`
+  }
+
+/** A release's one line of notes, upstream's release of the version linked, the targets it is built
+ * for and the image to pull. */
+let notes = (~runtime, ~version, ~upstream, ~image, architectures) =>
+  `[${runtime} ${version}](https://github.com/${upstream}/releases/tag/v${version}) for ${listed(
+      architectures->Array.map(target),
+    )}, \`docker pull ${image}:${version}\``
+
 /** The tags a version is published under, its own and `latest`, over each architecture's digest. */
 let tagged = (~image, ~version, digests) =>
   [

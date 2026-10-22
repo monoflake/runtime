@@ -11,11 +11,23 @@ let refuse = reason => {
 /** Where a runtime's versions are read, npm's package per architecture or GitHub's releases. */
 type source = Npm(array<string>) | GitHub(string)
 
-type runtime = {name: string, prefix: string, source: source}
+/** Each runtime, its `ARG` prefix, where its versions are read, and the GitHub repository whose
+ * release of a version its notes link to. */
+type runtime = {name: string, prefix: string, source: source, upstream: string}
 
 let runtimes = [
-  {name: "workerd", prefix: "WORKERD", source: Npm(["workerd-linux-64", "workerd-linux-arm64"])},
-  {name: "wasmtime", prefix: "WASMTIME", source: GitHub("bytecodealliance/wasmtime")},
+  {
+    name: "workerd",
+    prefix: "WORKERD",
+    source: Npm(["workerd-linux-64", "workerd-linux-arm64"]),
+    upstream: "cloudflare/workerd",
+  },
+  {
+    name: "wasmtime",
+    prefix: "WASMTIME",
+    source: GitHub("bytecodealliance/wasmtime"),
+    upstream: "bytecodealliance/wasmtime",
+  },
 ]
 
 let root = Host.cwd()
@@ -159,7 +171,7 @@ let digestOf = (path, name) =>
 /** Each architecture built once into its archive and its image pushed by digest, the image then
  * tagged over both, and the release drafted with the archives and their manifest, published last
  * so its tag stands only for a release whose assets are all up. */
-let release = ({name, prefix}, pin, version, hashes) => {
+let release = ({name, prefix, upstream}, pin, version, hashes) => {
   let tag = Image.tag(~runtime=name, ~version)
   let out = `${root}/dist/${tag}`
   let image = `docker.io/${namespace}/${name}`
@@ -244,7 +256,13 @@ let release = ({name, prefix}, pin, version, hashes) => {
         "--title",
         tag,
         "--notes",
-        `${name} ${version} as upstream released it, an OCI archive per architecture, and ${namespace}/${name}:${version} on Docker Hub.`,
+        Image.notes(
+          ~runtime=name,
+          ~version,
+          ~upstream,
+          ~image=`${namespace}/${name}`,
+          architectures(pin),
+        ),
         ...architectures(pin)->Array.map(archive),
         manifest,
       ],
