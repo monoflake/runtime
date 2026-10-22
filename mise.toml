@@ -2,11 +2,6 @@
 [env]
 _.path = ["{{config_root}}/node_modules/.bin"]
 
-[tools]
-actionlint = "1"
-# What actionlint checks a workflow's shell with.
-shellcheck = "0.11" # pre-1.0, where a minor is the breaking release
-
 # What oxfmt formats here; ReScript's formatter takes its sources from rescript.json.
 [vars]
 formatted = "README.md package.json rescript.json"
@@ -29,20 +24,15 @@ usage = 'flag "-n --dry-run" help="Read upstream and hash the downloads, and bui
 depends = ["build"]
 run = 'node .github/publish/publish.res.mjs ${usage_dry_run:+--dry-run}'
 
+# Its packages, actions and base images are the workspace's movers, workspace.toml's [update].
 [tasks.update]
-description = "Move this repository's tools, the ReScript compiler, the workflows' actions and the Dockerfiles' pins within their ranges: `update [--dry-run] [--major]`"
+description = "Move each Dockerfile's runtime to the newest version released here: `update [--dry-run] [--major]`"
 usage = '''
 flag "-n --dry-run" help="Say what would move and write nothing"
-flag "--major" help="Cross the ranges package.json declares"
+flag "--major" help="Taken by the workspace's movers; a runtime moves to the newest released here regardless"
 '''
-depends = ["//:build", "build"]
-run = """
-n=${usage_dry_run:+--dry-run}
-mise upgrade $n actionlint shellcheck
-node {{env.WORKSPACE}}/scripts/deps/actions.res.mjs $n ${usage_major:+--major} && node {{env.WORKSPACE}}/scripts/deps/images.res.mjs $n && node scripts/pins.res.mjs $n
-[ -z "$n" ] || { pnpm outdated; exit 0; }
-pnpm update ${usage_major:+--latest}
-"""
+depends = ["build"]
+run = "node scripts/pins.res.mjs ${usage_dry_run:+--dry-run}"
 
 [tasks.clean]
 description = "Remove what ReScript compiled and the archives a build wrote, never an installed dependency: `clean [--dry-run]`"
@@ -51,11 +41,10 @@ depends = ["//:build"]
 run = "node {{env.WORKSPACE}}/scripts/clean.res.mjs"
 
 [tasks.verify]
-description = "What a commit has to pass: everything formatted, the glue's tests, the workflow linted and the bake file read"
+description = "What a commit has to pass: everything formatted, the glue's tests and the bake file read; the workflow is the workspace's check"
 depends = ["build"]
 run = [
 	"rescript format --check && oxfmt --check {{vars.formatted}}",
 	"node --test '.github/publish/tests/**/*.res.mjs' 'scripts/tests/**/*.res.mjs'",
-	"actionlint .github/workflows/*.yml",
 	"cd images && docker buildx bake --print --progress=quiet > /dev/null",
 ]

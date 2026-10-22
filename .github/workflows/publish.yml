@@ -24,17 +24,9 @@ jobs:
     timeout-minutes: 60
     steps:
       # The workspace above the repository, as it is checked out at home, whose mise.toml pins node.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: canmi21/canmi/.github/actions/workspace@main
         with:
-          repository: canmi21/canmi
-          persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: repos/monoflake/runtime
-          persist-credentials: false
-      - uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
-        with:
-          working_directory: repos/monoflake/runtime
+          path: monoflake/runtime
       # The OCI exporter needs a builder of its own, which the docker driver is not.
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # Docker Hub takes each image under the author's own account, RFC m7rkq.
