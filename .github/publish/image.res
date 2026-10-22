@@ -70,8 +70,36 @@ let read = (text, ~prefix) => {
 let at = (address, ~prefix, ~version) =>
   address->String.replaceAll(`\${${prefix}_VERSION}`, version)
 
-/** The release's tag, which says whether the version was built already. */
-let tag = (~runtime, ~version) => `${runtime}-${version}`
+/** The release a day's builds go into, named by the UTC day with each part padded, so the names
+ * sort by their text as they do by date. */
+let day = now => {
+  let date = Date.fromTime(now)
+  let pad = n => n->Int.toString->String.padStart(2, "0")
+  `${date->Date.getUTCFullYear->Int.toString}.${pad(date->Date.getUTCMonth + 1)}.${pad(
+      date->Date.getUTCDate,
+    )}`
+}
+
+/** A version's manifest, uploaded last, so a release holding it holds the version whole. */
+let entry = (~runtime, ~version) => `${runtime}-${version}.json`
+
+/** Whether a published release holds the version's manifest, a draft counting for nothing. */
+let released = (releases: array<JSON.t>, ~runtime, ~version) =>
+  releases->Array.some(release =>
+    release->JSON.Decode.object->Option.flatMap(o => o->Dict.get("draft")) !=
+      Some(JSON.Encode.bool(true)) &&
+      release
+      ->JSON.Decode.object
+      ->Option.flatMap(o => o->Dict.get("assets"))
+      ->Option.flatMap(JSON.Decode.array)
+      ->Option.getOr([])
+      ->Array.some(asset =>
+        asset
+        ->JSON.Decode.object
+        ->Option.flatMap(o => o->Dict.get("name"))
+        ->Option.flatMap(JSON.Decode.string) == Some(entry(~runtime, ~version))
+      )
+  )
 
 /** The machine an architecture is filed under, as `uname -m` prints it, by Docker's name. */
 let machine = architecture =>
@@ -91,23 +119,16 @@ let archive = (~runtime, ~version, ~architecture) =>
 /** One archive as the manifest lists it, with its image's digest where it was pushed. */
 type asset = {file: string, size: float, sha256: string, digest?: string}
 
-/** Words read as prose, the last two joined by `and`. */
-let listed = words =>
-  switch words {
-  | [] => ""
-  | [one] => one
-  | _ =>
-    `${words->Array.slice(~start=0, ~end=-1)->Array.join(", ")} and ${words
-      ->Array.at(-1)
-      ->Option.getOr("")}`
-  }
+/** A version's line in its release's notes, upstream's release of it linked, then the pull linked
+ * to the tag on Docker Hub. */
+let line = (~runtime, ~version, ~upstream, ~image) =>
+  `- [${runtime} ${version}](https://github.com/${upstream}/releases/tag/v${version}) · [\`docker pull ${image}:${version}\`](https://hub.docker.com/r/${image}/tags?name=${version})`
 
-/** A release's one line of notes, upstream's release of the version linked, the targets it is built
- * for and the image to pull. */
-let notes = (~runtime, ~version, ~upstream, ~image, architectures) =>
-  `[${runtime} ${version}](https://github.com/${upstream}/releases/tag/v${version}) for ${listed(
-      architectures->Array.map(target),
-    )}, \`docker pull ${image}:${version}\``
+/** The notes with a line added at their end, unless they hold it already. */
+let appended = (notes, line) => {
+  let lines = notes->String.trim->String.split("\n")->Array.filter(l => l != "")
+  (lines->Array.includes(line) ? lines : [...lines, line])->Array.join("\n")
+}
 
 /** The tags a version is published under, its own and `latest`, over each architecture's digest. */
 let tagged = (~image, ~version, digests) =>

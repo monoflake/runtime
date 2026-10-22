@@ -206,17 +206,45 @@ test("an archive pushed names its image's digest in the manifest", () =>
   )
 )
 
-test("a release's notes are one line, upstream's release linked, its targets and the pull", () => {
+test("a day's release is named by the UTC day, each part padded so its name sorts by date", () => {
+  deepEqual(Image.day(Date.fromString("2026-09-05T23:59:00Z")->Date.getTime), "2026.09.05")
+  deepEqual(Image.day(Date.fromString("2026-10-22T00:00:00Z")->Date.getTime), "2026.10.22")
   deepEqual(
-    Image.notes(
-      ~runtime="workerd",
-      ~version="1.20261021.1",
-      ~upstream="cloudflare/workerd",
-      ~image="canmi/workerd",
-      ["amd64", "arm64"],
-    ),
-    "[workerd 1.20261021.1](https://github.com/cloudflare/workerd/releases/tag/v1.20261021.1) for linux-x86_64 and linux-aarch64, `docker pull canmi/workerd:1.20261021.1`",
+    ["2026.10.22", "2026.09.05"]->Array.toSorted(String.compare),
+    ["2026.09.05", "2026.10.22"],
   )
-  deepEqual(Image.listed(["a"]), "a")
-  deepEqual(Image.listed(["a", "b", "c"]), "a, b and c")
+})
+
+test("a version's line links upstream's release and the pull, and is added once", () => {
+  let line = Image.line(
+    ~runtime="workerd",
+    ~version="1.20261021.1",
+    ~upstream="cloudflare/workerd",
+    ~image="canmi/workerd",
+  )
+  deepEqual(
+    line,
+    "- [workerd 1.20261021.1](https://github.com/cloudflare/workerd/releases/tag/v1.20261021.1) · [`docker pull canmi/workerd:1.20261021.1`](https://hub.docker.com/r/canmi/workerd/tags?name=1.20261021.1)",
+  )
+  let other = "- [wasmtime 50.0.0](x) · [`docker pull canmi/wasmtime:50.0.0`](y)"
+  deepEqual(Image.appended("", line), line)
+  deepEqual(Image.appended(other, line), `${other}\n${line}`)
+  deepEqual(Image.appended(`${other}\n${line}\n`, line), `${other}\n${line}`)
+})
+
+test("a version is released once a published release holds its manifest", () => {
+  let releases =
+    JSON.parseOrThrow(`[
+    {"tag_name": "2026.10.22", "draft": true, "assets": [{"name": "wasmtime-50.0.0.json"}]},
+    {"tag_name": "2026.10.21", "draft": false, "assets": [
+      {"name": "workerd-1.20261021.1-linux-x86_64.tar"}, {"name": "workerd-1.20261021.1.json"}
+    ]},
+    {"tag_name": "2026.10.20", "draft": false, "assets": [{"name": "workerd-1.20261020.1-linux-x86_64.tar"}]}
+  ]`)
+    ->JSON.Decode.array
+    ->Option.getOr([])
+  deepEqual(Image.released(releases, ~runtime="workerd", ~version="1.20261021.1"), true)
+  deepEqual(Image.released(releases, ~runtime="wasmtime", ~version="50.0.0"), false)
+  deepEqual(Image.released(releases, ~runtime="workerd", ~version="1.20261020.1"), false)
+  deepEqual(Image.entry(~runtime="workerd", ~version="1.20261021.1"), "workerd-1.20261021.1.json")
 })

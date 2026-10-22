@@ -95,17 +95,6 @@ let published = async source =>
     ->Result.map(list => (None, list))
   }
 
-/** Whether this repository holds the tag, which a release here creates once its assets are up. */
-let released = async tag => {
-  let url = `https://api.github.com/repos/${repository}/git/ref/tags/${tag}`
-  switch await Host.fetch(url, {headers: headers(url)}) {
-  | response if response->Host.ok => Ok(true)
-  | response if response->Host.status == 404 => Ok(false)
-  | response => Error(`${url} answered ${response->Host.status->Int.toString}`)
-  | exception JsExn(e) => Error(`${url}: ${e->JsExn.message->Option.getOr("not reached")}`)
-  }
-}
-
 let shown = arg => arg->String.includes(" ") ? `'${arg}'` : arg
 
 /** A command printed with the variables it is given, then run unless the run is dry. */
@@ -168,12 +157,13 @@ let digestOf = (path, name) =>
     }
   )
 
+/** A version built, its archives, its manifest and its line in the day's notes. */
+type built = {archives: array<string>, manifest: string, line: string}
+
 /** Each architecture built once into its archive and its image pushed by digest, the image then
- * tagged over both, and the release drafted with the archives and their manifest, published last
- * so its tag stands only for a release whose assets are all up. */
-let release = ({name, prefix, upstream}, pin, version, hashes) => {
-  let tag = Image.tag(~runtime=name, ~version)
-  let out = `${root}/dist/${tag}`
+ * tagged over both, and the version's manifest written beside its archives. */
+let build = ({name, prefix, upstream}, pin, version, hashes) => {
+  let out = `${root}/dist/${name}-${version}`
   let image = `docker.io/${namespace}/${name}`
   let archive = architecture => `${out}/${Image.archive(~runtime=name, ~version, ~architecture)}`
   let metadata = architecture => `${out}/${architecture}.json`
@@ -223,8 +213,8 @@ let release = ({name, prefix, upstream}, pin, version, hashes) => {
       Image.tagged(~image, ~version, digests->Array.map(((_, digest)) => digest)),
     )->Result.map(() => digests)
   )
-  ->Result.flatMap(digests => {
-    let manifest = `${out}/manifest.json`
+  ->Result.map(digests => {
+    let manifest = `${out}/${Image.entry(~runtime=name, ~version)}`
     if !dry {
       let assets = digests->Array.map(((architecture, digest)) => {
         let bytes = Host.readBytes(archive(architecture))
@@ -246,35 +236,35 @@ let release = ({name, prefix, upstream}, pin, version, hashes) => {
         ),
       )
     }
-    run(
-      "gh",
-      [
-        "release",
-        "create",
-        tag,
-        "--repo",
-        repository,
-        "--draft",
-        "--title",
-        tag,
-        "--notes",
-        Image.notes(
-          ~runtime=name,
-          ~version,
-          ~upstream,
-          ~image=`${namespace}/${name}`,
-          architectures(pin),
-        ),
-        ...architectures(pin)->Array.map(archive),
-        manifest,
-      ],
-    )->Result.flatMap(() =>
-      run("gh", ["release", "edit", tag, "--repo", repository, "--draft=false"])
-    )
+    {
+      archives: architectures(pin)->Array.map(archive),
+      manifest,
+      line: Image.line(~runtime=name, ~version, ~upstream, ~image=`${namespace}/${name}`),
+    }
   })
 }
 
-let publish = async (runtime, ~delay) => {
+/** Every release here, a page of a hundred at a time, drafts among them. */
+let releases = async () => {
+  let rec page = async (n, found) =>
+    switch await fetched(
+      `https://api.github.com/repos/${repository}/releases?per_page=100&page=${n->Int.toString}`,
+      Host.text,
+    ) {
+    | Error(why) => Error(why)
+    | Ok(text) =>
+      switch JSON.parseOrThrow(text)->JSON.Decode.array {
+      | Some([]) => Ok(found)
+      | Some(list) => await page(n + 1, [...found, ...list])
+      | None => Error(`${repository}'s releases are not a list`)
+      | exception JsExn(_) => Error(`${repository}'s releases are not JSON`)
+      }
+    }
+  await page(1, [])
+}
+
+/** The version upstream released past the delay built, unless a release here holds it whole. */
+let publish = async (runtime, ~delay, ~releases) => {
   let {name, prefix, source} = runtime
   let file = `images/${name}/Dockerfile`
   switch readFile(file)->Result.flatMap(text => Image.read(text, ~prefix)) {
@@ -296,22 +286,78 @@ let publish = async (runtime, ~delay) => {
       switch take {
       | None =>
         Console.log("  nothing past the delay")
-        Ok()
+        Ok(None)
+      | Some(version) if Image.released(releases, ~runtime=name, ~version) =>
+        Console.log(`  ${version}, released here already`)
+        Ok(None)
       | Some(version) =>
-        let tag = Image.tag(~runtime=name, ~version)
-        switch await released(tag) {
-        | Error(why) => Error(why)
-        | Ok(true) =>
-          Console.log(`  ${version}, released already as ${tag}`)
-          Ok()
-        | Ok(false) =>
-          Console.log(`  ${version}, which ${repository} has no tag ${tag} for`)
-          (await hashes(runtime, pin, version))->Result.flatMap(hashes =>
-            release(runtime, pin, version, hashes)
-          )
-        }
+        Console.log(`  ${version}, which no release here holds`)
+        (await hashes(runtime, pin, version))
+        ->Result.flatMap(hashes => build(runtime, pin, version, hashes))
+        ->Result.map(built => Some(built))
       }
     }
+  }
+}
+
+/** A field of a release, as text. */
+let text = (release, key) =>
+  release
+  ->JSON.Decode.object
+  ->Option.flatMap(o => o->Dict.get(key))
+  ->Option.flatMap(JSON.Decode.string)
+
+/** What was built released under the UTC day, a new release drafted whole and published last, or
+ * the day's published one added to, each manifest uploaded after its archives and its line. */
+let release = (builds, ~releases) => {
+  let tag = Image.day(Date.now())
+  let named = releases->Array.filter(release => release->text("tag_name") == Some(tag))
+  let published =
+    named->Array.find(release =>
+      release->JSON.Decode.object->Option.flatMap(o => o->Dict.get("draft")) !=
+        Some(JSON.Encode.bool(true))
+    )
+  let gh = args => run("gh", [...args, "--repo", repository])
+  switch published {
+  | Some(release) =>
+    Console.log(`release ${tag}, added to`)
+    let notes =
+      builds->Array.reduce(release->text("body")->Option.getOr(""), (notes, {line}) =>
+        Image.appended(notes, line)
+      )
+    builds
+    ->Array.reduce(Ok(), (done, {archives}) =>
+      done->Result.flatMap(() => gh(["release", "upload", tag, ...archives, "--clobber"]))
+    )
+    ->Result.flatMap(() => gh(["release", "edit", tag, "--notes", notes]))
+    ->Result.flatMap(() =>
+      builds->Array.reduce(Ok(), (done, {manifest}) =>
+        done->Result.flatMap(() => gh(["release", "upload", tag, manifest, "--clobber"]))
+      )
+    )
+  | None =>
+    Console.log(`release ${tag}, new`)
+    // A draft a failed run left under the day's name is put aside, so one release takes the name.
+    named
+    ->Array.reduce(Ok(), (done, _) =>
+      done->Result.flatMap(() => gh(["release", "delete", tag, "--yes"]))
+    )
+    ->Result.flatMap(() =>
+      gh(
+        [
+          "release",
+          "create",
+          tag,
+          "--draft",
+          "--title",
+          tag,
+          "--notes",
+          builds->Array.map(({line}) => line)->Array.join("\n"),
+          ...builds->Array.flatMap(({archives, manifest}) => [...archives, manifest]),
+        ],
+      )
+    )
+    ->Result.flatMap(() => gh(["release", "edit", tag, "--draft=false"]))
   }
 }
 
@@ -320,19 +366,37 @@ switch Host.argv->Array.slice(~start=2) {
   switch readFile("pnpm-workspace.yaml")->Result.flatMap(Upstream.delay) {
   | Error(why) => refuse(`pnpm-workspace.yaml: ${why}`)
   | Ok(delay) =>
-    // One runtime failing is its own, so the other is still published.
-    let failed = (
-      await each(runtimes, async runtime => Ok(
-        switch await publish(runtime, ~delay) {
-        | Ok() => None
-        | Error(why) =>
-          Console.error(`publish: ${why}`)
-          Some(runtime.name)
-        },
-      ))
-    )->Result.mapOr([], found => found->Array.filterMap(x => x))
-    if failed != [] {
-      refuse(`not published: ${failed->Array.join(", ")}`)
+    switch await releases() {
+    | Error(why) => refuse(why)
+    | Ok(releases) =>
+      // One runtime failing is its own, so the other is still built and released.
+      let outcomes =
+        (
+          await each(runtimes, async runtime => Ok((
+            runtime.name,
+            await publish(runtime, ~delay, ~releases),
+          )))
+        )->Result.getOr([])
+      outcomes->Array.forEach(((name, outcome)) =>
+        switch outcome {
+        | Error(why) => Console.error(`publish: ${name}: ${why}`)
+        | Ok(_) => ()
+        }
+      )
+      let builds = outcomes->Array.filterMap(((_, outcome)) =>
+        switch outcome {
+        | Ok(Some(built)) => Some(built)
+        | Ok(None) | Error(_) => None
+        }
+      )
+      let released = builds == [] ? Ok() : release(builds, ~releases)
+      let failed =
+        outcomes->Array.filterMap(((name, outcome)) => Result.isError(outcome) ? Some(name) : None)
+      switch released {
+      | Error(why) => refuse(`not released: ${why}`)
+      | Ok() if failed != [] => refuse(`not published: ${failed->Array.join(", ")}`)
+      | Ok() => ()
+      }
     }
   }
 | _ => refuse("node .github/publish/publish.res.mjs [--dry-run]")
