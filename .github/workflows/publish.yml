@@ -1,18 +1,19 @@
-# Each day, by hand, or when the platform asks, builds each runtime upstream released past the
-# release delay that no tag here holds yet, and releases it here and on Docker Hub, .github/publish.
+# Each day, by hand, or on a push to main, builds each runtime upstream released past the release
+# delay that no release here holds yet, and releases it here and on Docker Hub, .github/publish.
 name: publish
 
 on:
   schedule:
     - cron: "17 6 * * *"
+  push:
+    branches: [main]
   workflow_dispatch:
-  repository_dispatch:
-    types: [publish]
 
-# One run at a time and never canceled, so two never race to release one tag.
+# A run started while another builds waits behind it in order, up to a hundred deep, and none is
+# canceled, so two never race to release one day, as rdm's nightly queues.
 concurrency:
   group: publish
-  cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: write

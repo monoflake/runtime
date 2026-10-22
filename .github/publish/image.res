@@ -119,10 +119,10 @@ let archive = (~runtime, ~version, ~architecture) =>
 /** One archive as the manifest lists it, with its image's digest where it was pushed. */
 type asset = {file: string, size: float, sha256: string, digest?: string}
 
-/** A version's line in its release's notes, upstream's release of it linked, then the pull linked
- * to the tag on Docker Hub. */
+/** A version's line in its release's notes, upstream's release of it linked, an arrow, then the
+ * pull linked to the tag on Docker Hub. */
 let line = (~runtime, ~version, ~upstream, ~image) =>
-  `- [${runtime} ${version}](https://github.com/${upstream}/releases/tag/v${version}) · [\`docker pull ${image}:${version}\`](https://hub.docker.com/r/${image}/tags?name=${version})`
+  `- [${runtime} ${version}](https://github.com/${upstream}/releases/tag/v${version}) → [\`docker pull ${image}:${version}\`](https://hub.docker.com/r/${image}/tags?name=${version})`
 
 /** The notes with a line added at their end, unless they hold it already. */
 let appended = (notes, line) => {

@@ -224,9 +224,9 @@ test("a version's line links upstream's release and the pull, and is added once"
   )
   deepEqual(
     line,
-    "- [workerd 1.20261021.1](https://github.com/cloudflare/workerd/releases/tag/v1.20261021.1) · [`docker pull canmi/workerd:1.20261021.1`](https://hub.docker.com/r/canmi/workerd/tags?name=1.20261021.1)",
+    "- [workerd 1.20261021.1](https://github.com/cloudflare/workerd/releases/tag/v1.20261021.1) → [`docker pull canmi/workerd:1.20261021.1`](https://hub.docker.com/r/canmi/workerd/tags?name=1.20261021.1)",
   )
-  let other = "- [wasmtime 50.0.0](x) · [`docker pull canmi/wasmtime:50.0.0`](y)"
+  let other = "- [wasmtime 50.0.0](x) → [`docker pull canmi/wasmtime:50.0.0`](y)"
   deepEqual(Image.appended("", line), line)
   deepEqual(Image.appended(other, line), `${other}\n${line}`)
   deepEqual(Image.appended(`${other}\n${line}\n`, line), `${other}\n${line}`)

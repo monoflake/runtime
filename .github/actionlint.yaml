@@ -1,0 +1,6 @@
+# GitHub took a concurrency group's queue in May 2026, after the newest actionlint, so its key alone
+# is let through until actionlint knows it.
+paths:
+  .github/workflows/publish.yml:
+    ignore:
+      - 'unexpected key "queue" for "concurrency" section'
