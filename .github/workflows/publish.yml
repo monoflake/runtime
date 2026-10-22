@@ -48,3 +48,29 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           mise run publish
+
+      # Docker Hub shows each image with this repository's readme and description, GitHub's kept.
+      - name: description
+        id: description
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "text=$(gh api "repos/$GITHUB_REPOSITORY" --jq .description)" >> "$GITHUB_OUTPUT"
+      - uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
+        if: ${{ !cancelled() }}
+        with:
+          username: canmi
+          password: ${{ secrets.DOCKERHUB_README_TOKEN }}
+          repository: canmi/workerd
+          short-description: ${{ steps.description.outputs.text }}
+          readme-filepath: repos/monoflake/runtime/README.md
+          enable-url-completion: true
+      - uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
+        if: ${{ !cancelled() }}
+        with:
+          username: canmi
+          password: ${{ secrets.DOCKERHUB_README_TOKEN }}
+          repository: canmi/wasmtime
+          short-description: ${{ steps.description.outputs.text }}
+          readme-filepath: repos/monoflake/runtime/README.md
+          enable-url-completion: true

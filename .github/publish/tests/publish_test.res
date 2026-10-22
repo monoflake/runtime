@@ -140,33 +140,6 @@ test("an archive is named by the system before the machine, as uname -m names th
   )
 })
 
-test("the manifest lists each archive in rdm's shape, by architecture, with the commit", () =>
-  deepEqual(
-    Image.manifest(
-      ~runtime="workerd",
-      ~version="1.20261019.1",
-      ~sha="abc",
-      dict{
-        "arm64": {file: "workerd-1.20261019.1-linux-aarch64.tar", size: 4., sha256: b},
-        "amd64": {file: "workerd-1.20261019.1-linux-x86_64.tar", size: 3., sha256: a},
-      },
-    )->JSON.parseOrThrow,
-    JSON.parseOrThrow(
-      `{"runtime": "workerd", "version": "1.20261019.1", "sha": "abc", "assets": [
-        {"target": "linux-x86_64", "kind": "oci", "file": "workerd-1.20261019.1-linux-x86_64.tar", "size": 3, "sha256": "${a}"},
-        {"target": "linux-aarch64", "kind": "oci", "file": "workerd-1.20261019.1-linux-aarch64.tar", "size": 4, "sha256": "${b}"}
-      ]}`,
-    ),
-  )
-)
-
-test("a manifest built by hand names no commit", () =>
-  deepEqual(
-    Image.manifest(~runtime="wasmtime", ~version="49.0.4", dict{})->JSON.parseOrThrow,
-    JSON.parseOrThrow(`{"runtime": "wasmtime", "version": "49.0.4", "assets": []}`),
-  )
-)
-
 test("a version is tagged as itself and latest over each architecture's digest", () =>
   deepEqual(
     Image.tagged(~image="docker.io/canmi/wasmtime", ~version="49.0.4", ["sha256:aa", "sha256:bb"]),
@@ -184,28 +157,6 @@ test("a version is tagged as itself and latest over each architecture's digest",
   )
 )
 
-test("an archive pushed names its image's digest in the manifest", () =>
-  deepEqual(
-    Image.manifest(
-      ~runtime="wasmtime",
-      ~version="49.0.4",
-      dict{
-        "amd64": {
-          file: "wasmtime-49.0.4-linux-x86_64.tar",
-          size: 3.,
-          sha256: a,
-          digest: "sha256:aa",
-        },
-      },
-    )->JSON.parseOrThrow,
-    JSON.parseOrThrow(
-      `{"runtime": "wasmtime", "version": "49.0.4", "assets": [
-        {"target": "linux-x86_64", "kind": "oci", "file": "wasmtime-49.0.4-linux-x86_64.tar", "size": 3, "sha256": "${a}", "digest": "sha256:aa"}
-      ]}`,
-    ),
-  )
-)
-
 test("a day's release is named by the UTC day, each part padded so its name sorts by date", () => {
   deepEqual(Image.day(Date.fromString("2026-09-05T23:59:00Z")->Date.getTime), "2026.09.05")
   deepEqual(Image.day(Date.fromString("2026-10-22T00:00:00Z")->Date.getTime), "2026.10.22")
@@ -215,36 +166,102 @@ test("a day's release is named by the UTC day, each part padded so its name sort
   )
 })
 
-test("a version's line links upstream's release and the pull, and is added once", () => {
-  let line = Image.line(
-    ~runtime="workerd",
-    ~version="1.20261021.1",
-    ~upstream="cloudflare/workerd",
-    ~image="canmi/workerd",
-  )
-  deepEqual(
-    line,
-    "- [workerd 1.20261021.1](https://github.com/cloudflare/workerd/releases/tag/v1.20261021.1) → [`docker pull canmi/workerd:1.20261021.1`](https://hub.docker.com/r/canmi/workerd/tags?name=1.20261021.1)",
-  )
-  let other = "- [wasmtime 50.0.0](x) → [`docker pull canmi/wasmtime:50.0.0`](y)"
-  deepEqual(Image.appended("", line), line)
-  deepEqual(Image.appended(other, line), `${other}\n${line}`)
-  deepEqual(Image.appended(`${other}\n${line}\n`, line), `${other}\n${line}`)
-})
+let upstream: Image.upstream = {
+  repository: "cloudflare/workerd",
+  tag: "v1.20261021.1",
+  commit: "1038810cb01af7860b0d576ee893ceb656bd5e98",
+}
 
-test("a version is released once a published release holds its manifest", () => {
+let workerd = Image.entry(
+  ~runtime="workerd",
+  ~version="1.20261021.1",
+  ~commit="ac4ef69583e4",
+  ~upstream,
+  dict{
+    "arm64": {
+      file: "workerd-1.20261021.1-linux-aarch64.tar",
+      size: 4.,
+      sha256: b,
+      digest: "sha256:bb",
+    },
+    "amd64": {
+      file: "workerd-1.20261021.1-linux-x86_64.tar",
+      size: 3.,
+      sha256: a,
+      digest: "sha256:aa",
+    },
+  },
+)
+
+test(
+  "a version's entry names its commit, upstream's release and each archive by architecture",
+  () =>
+    deepEqual(
+      workerd,
+      JSON.parseOrThrow(
+        `{"runtime": "workerd", "version": "1.20261021.1", "commit": "ac4ef69583e4",
+        "upstream": {"repository": "cloudflare/workerd", "tag": "v1.20261021.1", "commit": "1038810cb01af7860b0d576ee893ceb656bd5e98"},
+        "assets": [
+          {"target": "linux-x86_64", "kind": "oci", "file": "workerd-1.20261021.1-linux-x86_64.tar", "size": 3, "sha256": "${a}", "digest": "sha256:aa"},
+          {"target": "linux-aarch64", "kind": "oci", "file": "workerd-1.20261021.1-linux-aarch64.tar", "size": 4, "sha256": "${b}", "digest": "sha256:bb"}
+        ]}`,
+      ),
+    ),
+)
+
+test(
+  "a release's one manifest takes each version in, a later run's added and its own replaced",
+  () => {
+    let wasmtime = JSON.parseOrThrow(`{"runtime": "wasmtime", "version": "50.0.0", "assets": []}`)
+    let first = Image.merged(None, ~release="2026.10.22", [wasmtime])->JSON.parseOrThrow
+    let second = Image.merged(Some(first), ~release="2026.10.22", [workerd])->JSON.parseOrThrow
+    deepEqual(
+      second->Image.list("runtimes")->Array.map(entry => entry->Image.text("runtime")),
+      [Some("wasmtime"), Some("workerd")],
+    )
+    let again = Image.merged(Some(second), ~release="2026.10.22", [workerd])->JSON.parseOrThrow
+    deepEqual(again->Image.list("runtimes")->Array.length, 2)
+    deepEqual(Image.lists(again, ~runtime="workerd", ~version="1.20261021.1"), true)
+    deepEqual(Image.lists(again, ~runtime="workerd", ~version="1.20261022.1"), false)
+    deepEqual(again->Image.text("release"), Some("2026.10.22"))
+  },
+)
+
+test("only a published release carrying a version's archives has its manifest read", () => {
   let releases =
     JSON.parseOrThrow(`[
-    {"tag_name": "2026.10.22", "draft": true, "assets": [{"name": "wasmtime-50.0.0.json"}]},
-    {"tag_name": "2026.10.21", "draft": false, "assets": [
-      {"name": "workerd-1.20261021.1-linux-x86_64.tar"}, {"name": "workerd-1.20261021.1.json"}
-    ]},
-    {"tag_name": "2026.10.20", "draft": false, "assets": [{"name": "workerd-1.20261020.1-linux-x86_64.tar"}]}
+    {"tag_name": "2026.10.22", "draft": true, "assets": [{"name": "wasmtime-50.0.0-linux-x86_64.tar"}]},
+    {"tag_name": "2026.10.21", "draft": false, "assets": [{"name": "workerd-1.20261021.1-linux-x86_64.tar"}, {"name": "manifest.json"}]}
   ]`)
     ->JSON.Decode.array
     ->Option.getOr([])
-  deepEqual(Image.released(releases, ~runtime="workerd", ~version="1.20261021.1"), true)
-  deepEqual(Image.released(releases, ~runtime="wasmtime", ~version="50.0.0"), false)
-  deepEqual(Image.released(releases, ~runtime="workerd", ~version="1.20261020.1"), false)
-  deepEqual(Image.entry(~runtime="workerd", ~version="1.20261021.1"), "workerd-1.20261021.1.json")
+  deepEqual(
+    releases->Array.map(release =>
+      Image.holds(release, ~runtime="workerd", ~version="1.20261021.1")
+    ),
+    [false, true],
+  )
+  deepEqual(
+    releases->Array.map(release => Image.holds(release, ~runtime="wasmtime", ~version="50.0.0")),
+    [false, false],
+  )
+  deepEqual(
+    releases->Array.map(release => Image.holds(release, ~runtime="workerd", ~version="1.20261021")),
+    [false, false],
+  )
+})
+
+test("a version's row links upstream's release, upstream's commit short, and its image", () =>
+  deepEqual(
+    Image.row(~runtime="workerd", ~version="1.20261021.1", ~upstream, ~image="canmi/workerd"),
+    "| workerd | [1.20261021.1](https://github.com/cloudflare/workerd/releases/tag/v1.20261021.1) | [`1038810`](https://github.com/cloudflare/workerd/commit/1038810cb01af7860b0d576ee893ceb656bd5e98) | [`canmi/workerd:1.20261021.1`](https://hub.docker.com/r/canmi/workerd/tags?name=1.20261021.1) |",
+  )
+)
+
+test("the notes are a table, its head first and each row added once at its end", () => {
+  let head = Image.header->Array.join("\n")
+  deepEqual(Image.appended("", "| a |"), `${head}\n| a |`)
+  deepEqual(Image.appended(`${head}\n| a |`, "| b |"), `${head}\n| a |\n| b |`)
+  deepEqual(Image.appended(`${head}\n| a |\n| b |\n`, "| a |"), `${head}\n| a |\n| b |`)
+  deepEqual(Image.appended("- an older list item", "| a |"), `${head}\n| a |`)
 })

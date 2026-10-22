@@ -80,27 +80,6 @@ let day = now => {
     )}`
 }
 
-/** A version's manifest, uploaded last, so a release holding it holds the version whole. */
-let entry = (~runtime, ~version) => `${runtime}-${version}.json`
-
-/** Whether a published release holds the version's manifest, a draft counting for nothing. */
-let released = (releases: array<JSON.t>, ~runtime, ~version) =>
-  releases->Array.some(release =>
-    release->JSON.Decode.object->Option.flatMap(o => o->Dict.get("draft")) !=
-      Some(JSON.Encode.bool(true)) &&
-      release
-      ->JSON.Decode.object
-      ->Option.flatMap(o => o->Dict.get("assets"))
-      ->Option.flatMap(JSON.Decode.array)
-      ->Option.getOr([])
-      ->Array.some(asset =>
-        asset
-        ->JSON.Decode.object
-        ->Option.flatMap(o => o->Dict.get("name"))
-        ->Option.flatMap(JSON.Decode.string) == Some(entry(~runtime, ~version))
-      )
-  )
-
 /** The machine an architecture is filed under, as `uname -m` prints it, by Docker's name. */
 let machine = architecture =>
   switch architecture {
@@ -119,17 +98,6 @@ let archive = (~runtime, ~version, ~architecture) =>
 /** One archive as the manifest lists it, with its image's digest where it was pushed. */
 type asset = {file: string, size: float, sha256: string, digest?: string}
 
-/** A version's line in its release's notes, upstream's release of it linked, an arrow, then the
- * pull linked to the tag on Docker Hub. */
-let line = (~runtime, ~version, ~upstream, ~image) =>
-  `- [${runtime} ${version}](https://github.com/${upstream}/releases/tag/v${version}) → [\`docker pull ${image}:${version}\`](https://hub.docker.com/r/${image}/tags?name=${version})`
-
-/** The notes with a line added at their end, unless they hold it already. */
-let appended = (notes, line) => {
-  let lines = notes->String.trim->String.split("\n")->Array.filter(l => l != "")
-  (lines->Array.includes(line) ? lines : [...lines, line])->Array.join("\n")
-}
-
 /** The tags a version is published under, its own and `latest`, over each architecture's digest. */
 let tagged = (~image, ~version, digests) =>
   [
@@ -143,14 +111,34 @@ let tagged = (~image, ~version, digests) =>
     ...digests->Array.map(digest => `${image}@${digest}`),
   ]
 
-/** The manifest a release carries in rdm's shape, each archive with its target, size and SHA-256,
- * and the commit that built it where one is known. */
-let manifest = (~runtime, ~version, ~sha=?, assets: dict<asset>) => {
+let field = (json, key) => json->JSON.Decode.object->Option.flatMap(o => o->Dict.get(key))
+let text = (json, key) => json->field(key)->Option.flatMap(JSON.Decode.string)
+let list = (json, key) => json->field(key)->Option.flatMap(JSON.Decode.array)->Option.getOr([])
+
+/** The one manifest a release carries, every version it holds listed in it, written last. */
+let manifestFile = "manifest.json"
+
+/** Where upstream released a version, its repository, its tag and the commit the tag names. */
+type upstream = {repository: string, tag: string, commit: string}
+
+/** A version as the manifest lists it, upstream's release of it, the commit here that built it
+ * where one is known, and each archive with its target, size, SHA-256 and image digest. */
+let entry = (~runtime, ~version, ~commit=?, ~upstream: upstream, assets: dict<asset>) => {
   let fields = dict{
     "runtime": JSON.Encode.string(runtime),
     "version": JSON.Encode.string(version),
   }
-  sha->Option.forEach(sha => fields->Dict.set("sha", JSON.Encode.string(sha)))
+  commit->Option.forEach(commit => fields->Dict.set("commit", JSON.Encode.string(commit)))
+  fields->Dict.set(
+    "upstream",
+    JSON.Encode.object(
+      dict{
+        "repository": JSON.Encode.string(upstream.repository),
+        "tag": JSON.Encode.string(upstream.tag),
+        "commit": JSON.Encode.string(upstream.commit),
+      },
+    ),
+  )
   fields->Dict.set(
     "assets",
     assets
@@ -169,5 +157,64 @@ let manifest = (~runtime, ~version, ~sha=?, assets: dict<asset>) => {
     })
     ->JSON.Encode.array,
   )
-  JSON.Encode.object(fields)->JSON.stringify(~space=2) ++ "\n"
+  JSON.Encode.object(fields)
+}
+
+let same = (a, b) =>
+  a->text("runtime") == b->text("runtime") && a->text("version") == b->text("version")
+
+/** The release's manifest with each entry put in, one of the same version replaced, the rest kept
+ * in their order. */
+let merged = (existing: option<JSON.t>, ~release, entries: array<JSON.t>) => {
+  let kept =
+    existing
+    ->Option.mapOr([], manifest => manifest->list("runtimes"))
+    ->Array.filter(old => !(entries->Array.some(entry => same(old, entry))))
+  JSON.Encode.object(
+    dict{
+      "release": JSON.Encode.string(release),
+      "runtimes": JSON.Encode.array([...kept, ...entries]),
+    },
+  )->JSON.stringify(~space=2) ++ "\n"
+}
+
+/** Whether a release's manifest lists the version. */
+let lists = (manifest: JSON.t, ~runtime, ~version) =>
+  manifest
+  ->list("runtimes")
+  ->Array.some(entry =>
+    entry->text("runtime") == Some(runtime) && entry->text("version") == Some(version)
+  )
+
+/** Whether a published release carries the version's archives, so its manifest is the one to
+ * read, a draft counting for nothing. */
+let holds = (release: JSON.t, ~runtime, ~version) =>
+  release->field("draft") != Some(JSON.Encode.bool(true)) &&
+    release
+    ->list("assets")
+    ->Array.some(asset =>
+      asset
+      ->text("name")
+      ->Option.mapOr(false, name => name->String.startsWith(`${runtime}-${version}-`))
+    )
+
+/** The head of a release's notes, a table of the versions it holds. */
+let header = ["| Runtime | Version | Commit | Image |", "| --- | --- | --- | --- |"]
+
+/** A version's row, upstream's release of it linked, upstream's commit short and linked, then the
+ * image linked to its tag on Docker Hub. */
+let row = (~runtime, ~version, ~upstream: upstream, ~image) =>
+  `| ${runtime} | [${version}](https://github.com/${upstream.repository}/releases/tag/${upstream.tag}) | [\`${upstream.commit->String.slice(
+      ~start=0,
+      ~end=7,
+    )}\`](https://github.com/${upstream.repository}/commit/${upstream.commit}) | [\`${image}:${version}\`](https://hub.docker.com/r/${image}/tags?name=${version}) |`
+
+/** The notes with a row added at the table's end, unless they hold it, the table's head first. */
+let appended = (notes, row) => {
+  let rows =
+    notes
+    ->String.split("\n")
+    ->Array.map(String.trim)
+    ->Array.filter(line => line->String.startsWith("| ") && !(header->Array.includes(line)))
+  [...header, ...rows->Array.includes(row) ? rows : [...rows, row]]->Array.join("\n")
 }
