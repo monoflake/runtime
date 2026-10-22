@@ -191,6 +191,8 @@ let release = ({name, prefix, upstream}, pin, version, hashes) => {
         [
           "buildx",
           "bake",
+          // Bake writes outside its own directory only where it is let, the archive's alone.
+          `--allow=fs.write=${out}`,
           "--file",
           "docker-bake.hcl",
           "--provenance=false",
