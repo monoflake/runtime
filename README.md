@@ -8,7 +8,7 @@
 docker compose up
 ```
 
-That reads [docker-compose.yaml](docker-compose.yaml), see [Docker Compose](https://docs.docker.com/compose/); or pull each image on its own:
+That reads [docker-compose.yaml](docker-compose.yaml), see [Docker Compose](https://docs.docker.com/compose); or pull each image on its own:
 
 ```sh
 docker pull canmi/workerd
