@@ -15,3 +15,13 @@ ids = "monoflake"
 [release]
 built = "dist/built.json"
 columns = ["Runtime", "Version", "Commit", "Image"]
+
+# Where the project's own name is the user agent a request is told by among others', the
+# workspace's docs/naming.md.
+[[names.data]]
+file = ".github/publish/publish.res"
+spelled = ["monoflake-runtime"]
+
+[[names.data]]
+file = "scripts/pins.res"
+spelled = ["monoflake-runtime"]
