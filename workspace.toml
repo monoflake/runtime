@@ -11,6 +11,10 @@ images = true
 [rfcs]
 ids = "monoflake"
 
+# Suffixes this repository alone tracks, formatted by nothing, the workspace's docs/lint-format.md.
+[format]
+unformatted = [".hcl"]
+
 # What the workspace's scripts/release takes, the built.json publish writes and the notes' columns.
 [release]
 built = "dist/built.json"
