@@ -1,10 +1,10 @@
-# Each day, by hand, or on a push to main, builds each runtime upstream released past the delay that
+# Weekly, by hand, or on a push to main, builds each runtime upstream released past the delay that
 # no release here holds, pushes it to Docker Hub and releases it by the workspace's scripts/release.
 name: publish
 
 on:
   schedule:
-    - cron: "17 6 * * *"
+    - cron: "17 6 * * 1"
   push:
     branches: [main]
   workflow_dispatch:
