@@ -206,11 +206,48 @@ test("a version is named for the workspace's release by its commit, upstream and
   )
 )
 
-test("a version counts as released where a published release's manifest lists it", () => {
-  let listed = [
-    JSON.parseOrThrow(`{"name": "workerd", "version": "1.20261021.1", "release": "2026.10.22"}`),
-  ]
-  deepEqual(Image.listed(listed, ~runtime="workerd", ~version="1.20261021.1"), true)
-  deepEqual(Image.listed(listed, ~runtime="workerd", ~version="1.20261022.1"), false)
-  deepEqual(Image.listed(listed, ~runtime="wasmtime", ~version="1.20261021.1"), false)
+test("release membership uses the workspace status and accepts no failed lookup", () => {
+  let before = Host.env->Dict.get("WORKSPACE")
+  Host.env->Dict.delete("WORKSPACE")
+  deepEqual(
+    Released.holds(~root=".", ~name="workerd", ~version="1"),
+    Error("no WORKSPACE, which mise sets from the workspace's mise.toml"),
+  )
+  before->Option.forEach(value => Host.env->Dict.set("WORKSPACE", value))
+})
+
+@module("node:fs") external mkdtemp: string => string = "mkdtempSync"
+@module("node:os") external tmpdir: unit => string = "tmpdir"
+type removal = {recursive: bool, force: bool}
+@module("node:fs") external remove: (string, removal) => unit = "rmSync"
+
+test("the workspace handles holds and fetch output larger than Node's default buffer", () => {
+  let before = Host.env->Dict.get("WORKSPACE")
+  let workspace = mkdtemp(`${tmpdir()}/runtime-release-`)
+  Host.mkdirSync(`${workspace}/scripts/release`, {recursive: true})
+  Host.mkdirSync(`${workspace}/scripts/bindings`, {recursive: true})
+  Host.env->Dict.set("WORKSPACE", workspace)
+  [(0, Ok(true)), (2, Ok(false)), (1, Error("workspace release holds failed"))]->Array.forEach(((
+    code,
+    expected,
+  )) => {
+    Host.writeFileSync(
+      `${workspace}/scripts/release/release.res.mjs`,
+      `if (process.argv.slice(2).join(' ') !== 'holds workerd 1') process.exit(99); process.exit(${code->Int.toString});`,
+    )
+    deepEqual(Released.holds(~root=".", ~name="workerd", ~version="1"), expected)
+  })
+  Host.writeFileSync(
+    `${workspace}/scripts/bindings/github.res.mjs`,
+    "if (process.argv.slice(2).join(' ') !== 'releases upstream/repo') process.exit(99); process.stdout.write('x'.repeat(2 * 1024 * 1024));",
+  )
+  deepEqual(
+    Released.fetched(~root=".", "releases", "upstream/repo")->Result.map(String.length),
+    Ok(2097152),
+  )
+  switch before {
+  | Some(value) => Host.env->Dict.set("WORKSPACE", value)
+  | None => Host.env->Dict.delete("WORKSPACE")
+  }
+  remove(workspace, {recursive: true, force: true})
 })

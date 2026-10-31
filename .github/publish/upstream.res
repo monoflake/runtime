@@ -8,6 +8,7 @@ type published = {version: string, at: float}
 
 let field = (json, name) => json->JSON.Decode.object->Option.flatMap(o => o->Dict.get(name))
 let text = (json, name) => json->field(name)->Option.flatMap(JSON.Decode.string)
+let list = (json, name) => json->field(name)->Option.flatMap(JSON.Decode.array)->Option.getOr([])
 let time = stamp => Date.fromString(stamp)->Date.getTime
 
 let parsed = (document, ~what) =>

@@ -98,9 +98,9 @@ let tagged = (~image, ~version, digests) =>
     ...digests->Array.map(digest => `${image}@${digest}`),
   ]
 
-let field = (json, key) => json->JSON.Decode.object->Option.flatMap(o => o->Dict.get(key))
-let text = (json, key) => json->field(key)->Option.flatMap(JSON.Decode.string)
-let list = (json, key) => json->field(key)->Option.flatMap(JSON.Decode.array)->Option.getOr([])
+let field = Upstream.field
+let text = Upstream.text
+let list = Upstream.list
 
 /** Where upstream released a version, its repository, its tag and the commit the tag names. */
 type upstream = {repository: string, tag: string, commit: string}
@@ -138,13 +138,6 @@ let built = (~runtime, ~version, ~commit, ~upstream: upstream, ~row, archives: a
       ->JSON.Encode.array,
       "row": row->Array.map(JSON.Encode.string)->JSON.Encode.array,
     },
-  )
-
-/** Whether what the published releases list, as the workspace's `release listed` prints it, holds
- * the version. */
-let listed = (entries: array<JSON.t>, ~runtime, ~version) =>
-  entries->Array.some(entry =>
-    entry->text("name") == Some(runtime) && entry->text("version") == Some(version)
   )
 
 /** A version's row, upstream's release of it linked, upstream's commit short and linked, then the
