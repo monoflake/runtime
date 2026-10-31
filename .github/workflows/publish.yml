@@ -35,13 +35,14 @@ jobs:
         with:
           username: canmi
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: install
+        working-directory: repos/monoflake/runtime
+        run: pnpm install --frozen-lockfile
       - name: build
         working-directory: repos/monoflake/runtime
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          pnpm install --frozen-lockfile
-          mise run publish
+        run: mise run publish
       # What one runtime built is released though the other failed, and nothing where none built.
       - name: release
         if: ${{ !cancelled() }}
@@ -54,9 +55,10 @@ jobs:
       - name: description
         id: description
         if: ${{ !cancelled() }}
+        working-directory: repos/monoflake/runtime
         env:
           GH_TOKEN: ${{ github.token }}
-        run: echo "text=$(gh api "repos/$GITHUB_REPOSITORY" --jq .description)" >> "$GITHUB_OUTPUT"
+        run: mise run description
       - uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
         if: ${{ !cancelled() }}
         with:

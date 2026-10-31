@@ -18,6 +18,11 @@ rescript format --check; oxfmt --list-different {{vars.formatted}}; exit 0
 description = "Compile the glue under .github/publish/ and its tests"
 run = "rescript build"
 
+[tasks.description]
+description = "Write the repository's description to GITHUB_OUTPUT for Docker Hub"
+depends = ["build"]
+run = "node scripts/description.res.mjs"
+
 [tasks.publish]
 description = "Build each runtime upstream released past the delay that no release here lists, push it to Docker Hub and name it in dist/built.json: `publish [--dry-run]`"
 usage = 'flag "-n --dry-run" help="Read upstream and hash the downloads, and build, push and write nothing"'
