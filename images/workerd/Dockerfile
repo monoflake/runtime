@@ -16,7 +16,7 @@ ADD --checksum=sha256:${WORKERD_SHA256_ARM64} https://registry.npmjs.org/@cloudf
 FROM fetch-${TARGETARCH} AS fetch
 RUN tar -xzf /workerd.tgz -C / package/bin/workerd
 
-FROM gcr.io/distroless/base-nossl-debian13:nonroot@sha256:6a2a3346335b94d3be0732472245f42ca3ce3cc1135a9521a2bda4b677f2ef0d
+FROM gcr.io/distroless/base-nossl-debian13:nonroot@sha256:e6b0f82595aa1edde72c8054de7a9dca30f0f8f54820c37a167c0ddfc21c5c67
 ARG WORKERD_VERSION
 LABEL org.opencontainers.image.version=${WORKERD_VERSION}
 COPY --from=fetch --chmod=0755 /package/bin/workerd /usr/local/bin/workerd
