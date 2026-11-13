@@ -16,7 +16,7 @@ ADD --checksum=sha256:${WASMTIME_SHA256_ARM64} https://github.com/bytecodeallian
 FROM fetch-${TARGETARCH} AS fetch
 RUN mkdir /out && tar -xJf /wasmtime.tar.xz -C /out && mv /out/*/wasmtime /wasmtime
 
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:cc66d222f0a7ec996b78a99fe76a969bc80b539a5016ad866c14d1949bc6d0ab
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:cb87acc574abe719b6e5c547384defa2f7b1f24af9605d3f618cf852495d8be2
 ARG WASMTIME_VERSION
 LABEL org.opencontainers.image.version=${WASMTIME_VERSION}
 COPY --from=fetch --chmod=0755 /wasmtime /usr/local/bin/wasmtime
